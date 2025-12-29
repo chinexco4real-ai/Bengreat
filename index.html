@@ -208,7 +208,7 @@
                         </div>
                     </div>
                     <div style="font-size: 12px; color: #94a3b8; margin-top: 15px;">
-                        <strong>Analysis Factors:</strong> Multi-Timeframe Analysis, Trend Strength, Momentum, Volatility Detection, Support/Resistance, Historical Win Rate
+                        <strong>Analysis Factors:</strong> Multi-Timeframe Analysis (1m/5m/15m), Trend Strength, Momentum, Volatility Detection, Support/Resistance, Historical Win Rate
                     </div>
                 </div>
             </div>
@@ -1111,13 +1111,13 @@
                 return;
             }
             
-            // Step 3: Multi-timeframe alignment
-            const shortTrend = analyzeTrend(priceHistory.slice(-30));   // ~5 min
-            const mediumTrend = analyzeTrend(priceHistory.slice(-60));  // ~10 min
-            const longTrend = analyzeTrend(priceHistory.slice(-100));   // ~15 min
+            // Step 3: Multi-timeframe alignment (1m, 5m, 15m)
+            const shortTrend = analyzeTrend(priceHistory.slice(-6));    // ~1 min (6 ticks)
+            const mediumTrend = analyzeTrend(priceHistory.slice(-30));  // ~5 min (30 ticks)
+            const longTrend = analyzeTrend(priceHistory.slice(-90));    // ~15 min (90 ticks)
             
             if (!(shortTrend === mediumTrend && mediumTrend === longTrend)) {
-                addLog(`Timeframes not aligned: Short=${shortTrend}, Medium=${mediumTrend}, Long=${longTrend}`, "info");
+                addLog(`Timeframes not aligned: 1m=${shortTrend}, 5m=${mediumTrend}, 15m=${longTrend}`, "info");
                 setUndecidedSignal();
                 return;
             }
@@ -1280,12 +1280,12 @@
             if (signal === 'BUY') {
                 document.getElementById('signalText').textContent = '🚀 BUY SIGNAL';
                 document.getElementById('signalText').className = 'signal-text signal-buy';
-                addLog(`✅ STRONG BUY SIGNAL: Timeframes aligned, ${consistency.consistency.toFixed(0)}% consistency, ${roc.toFixed(2)}%/min momentum`, "success");
+                addLog(`✅ STRONG BUY SIGNAL: Timeframes aligned (1m/5m/15m), ${consistency.consistency.toFixed(0)}% consistency, ${roc.toFixed(2)}%/min momentum`, "success");
                 if (tradeMode === 'auto') placeTrade('CALL');
             } else if (signal === 'SELL') {
                 document.getElementById('signalText').textContent = '📉 SELL SIGNAL';
                 document.getElementById('signalText').className = 'signal-text signal-sell';
-                addLog(`✅ STRONG SELL SIGNAL: Timeframes aligned, ${consistency.consistency.toFixed(0)}% consistency, ${roc.toFixed(2)}%/min momentum`, "success");
+                addLog(`✅ STRONG SELL SIGNAL: Timeframes aligned (1m/5m/15m), ${consistency.consistency.toFixed(0)}% consistency, ${roc.toFixed(2)}%/min momentum`, "success");
                 if (tradeMode === 'auto') placeTrade('PUT');
             }
             
@@ -1358,3 +1358,4 @@
     </script>
 </body>
 </html>
+           
