@@ -45,6 +45,12 @@
             gap: 10px;
         }
 
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
         .connection-status {
             display: flex;
             align-items: center;
@@ -53,6 +59,13 @@
             background: rgba(255,255,255,0.1);
             border-radius: 20px;
             font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .connection-status.reconnecting {
+            background: rgba(255, 165, 0, 0.2);
+            color: #fbbf24;
+            border: 1px solid #fbbf24;
         }
 
         .status-dot {
@@ -67,9 +80,18 @@
             background: #10b981;
         }
 
+        .status-dot.reconnecting {
+            background: #fbbf24;
+            animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
+        }
+
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
         }
 
         .main-content {
@@ -78,22 +100,26 @@
 
         .login-card {
             background: #f7fafc;
-            padding: 25px;
+            padding: 20px;
             border-radius: 10px;
             margin-bottom: 20px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
         }
 
         .login-card h2 {
             margin-bottom: 15px;
             color: #2d3748;
-            font-size: 20px;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .login-form {
             display: grid;
             grid-template-columns: 1fr auto;
-            gap: 10px;
+            gap: 15px;
             align-items: end;
         }
 
@@ -140,6 +166,69 @@
             font-size: 14px;
         }
 
+        /* Toggle Switch Styling */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .toggle-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #667eea;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
         .btn {
             padding: 12px 30px;
             border: none;
@@ -152,6 +241,11 @@
             align-items: center;
             gap: 8px;
             white-space: nowrap;
+        }
+
+        .btn-sm {
+            padding: 8px 15px;
+            font-size: 13px;
         }
 
         .btn:disabled {
@@ -185,41 +279,51 @@
         }
 
         .account-info {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .account-column {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 20px;
+            padding: 15px 25px;
             border-radius: 10px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 15px 30px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .info-item {
-            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
         }
 
-        .info-item:last-child {
-            margin-bottom: 0;
+        .info-item.right-align {
+            align-items: flex-end;
+            text-align: right;
         }
 
         .info-label {
             font-size: 12px;
-            opacity: 0.9;
-            margin-bottom: 5px;
+            opacity: 0.8;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .info-value {
             font-size: 20px;
-            font-weight: bold;
+            font-weight: 700;
         }
 
-        .grid-2 {
+        /* Update Grid to 3 columns to fit filters, or keep 2 and stack */
+        .grid-3 {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
             margin-bottom: 20px;
         }
@@ -229,6 +333,7 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            height: 100%;
         }
 
         .card h3 {
@@ -412,8 +517,17 @@
             margin-bottom: 20px;
         }
 
-        .trade-history h3 {
+        .trade-history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .trade-history h3 {
+            margin-bottom: 0;
             color: #2d3748;
         }
 
@@ -522,12 +636,12 @@
                 font-size: 18px;
             }
 
-            .grid-2 {
+            .grid-3 {
                 grid-template-columns: 1fr;
             }
 
             .account-info {
-                grid-template-columns: 1fr;
+                gap: 10px;
             }
 
             .stats-grid {
@@ -594,64 +708,60 @@
                 <span>📊</span>
                 Ben Scalper Bot
             </h1>
-            <div class="connection-status">
-                <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Disconnected</span>
+            <div class="header-controls">
+                <div class="connection-status">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+                <button id="logoutBtn" class="btn btn-danger btn-sm" style="display: none;">Logout</button>
             </div>
         </div>
 
         <div class="main-content">
-            <!-- Login Card -->
-            <div class="login-card" id="loginCard">
-                <h2>🔐 Deriv API Connection</h2>
-                <div class="login-form">
-                    <div class="input-group">
-                        <label>API Token</label>
-                        <input type="password" id="apiToken" placeholder="Enter your Deriv API token">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="rememberToken">
-                            <label for="rememberToken">Remember my token</label>
+            <div id="topSection">
+                <div class="login-card" id="loginCard">
+                    <h2>🔐 Deriv API Connection</h2>
+                    <div class="login-form">
+                        <div class="input-group">
+                            <label>API Token</label>
+                            <input type="password" id="apiToken" placeholder="Enter your Deriv API token">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="rememberToken">
+                                <label for="rememberToken">Remember my token</label>
+                            </div>
                         </div>
+                        <button class="btn btn-primary" id="loginBtn">
+                            <span>🚀</span> Connect
+                        </button>
                     </div>
-                    <button class="btn btn-primary" id="loginBtn">
-                        <span>🚀</span> Connect
-                    </button>
+                    <div style="margin-top: 15px; font-size: 13px; color: #718096;">
+                        <a href="https://app.deriv.com/account/api-token" target="_blank" style="color: #667eea; text-decoration: none;">Get Token →</a>
+                    </div>
                 </div>
-                <div style="margin-top: 15px; padding: 12px; background: #fef3c7; border-radius: 8px; font-size: 13px;">
-                    <strong>⚠️ Note:</strong> Get your API token from 
-                    <a href="https://app.deriv.com/account/api-token" target="_blank" style="color: #667eea;">Deriv API Token Page</a>
-                </div>
-            </div>
 
-            <!-- Account Information (Two Columns) -->
-            <div class="account-info" id="accountInfo" style="display: none;">
-                <div class="account-column">
+                <div class="account-info" id="accountInfo" style="display: none;">
                     <div class="info-item">
                         <div class="info-label">Account Type</div>
                         <div class="info-value" id="accountType">-</div>
+                    </div>
+                    <div class="info-item right-align">
+                        <div class="info-label">Balance</div>
+                        <div class="info-value" id="accountBalance">0.00</div>
                     </div>
                     <div class="info-item">
                         <div class="info-label">Currency</div>
                         <div class="info-value" id="accountCurrency">-</div>
                     </div>
-                </div>
-                <div class="account-column">
-                    <div class="info-item">
-                        <div class="info-label">Balance</div>
-                        <div class="info-value" id="accountBalance">0.00</div>
-                    </div>
-                    <div class="info-item">
+                    <div class="info-item right-align">
                         <div class="info-label">Session Time</div>
                         <div class="info-value" id="sessionTimer">00:00:00</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Trading Settings and Risk Management -->
-            <div class="grid-2" id="tradingSettings" style="display: none;">
+            <div class="grid-3" id="tradingSettings">
                 <div class="card">
                     <h3>⚙️ Trading Settings</h3>
-                    
                     <div class="form-group">
                         <label>Market</label>
                         <select id="market">
@@ -667,12 +777,10 @@
                             <option value="stpRNG5">Step Index 500</option>
                         </select>
                     </div>
-
                     <div class="form-group">
                         <label>Stake Amount</label>
                         <input type="number" id="stakeAmount" value="1" min="0.35" step="0.01">
                     </div>
-
                     <div class="form-group">
                         <label>Duration Type</label>
                         <select id="durationType">
@@ -681,7 +789,6 @@
                             <option value="m">Minutes</option>
                         </select>
                     </div>
-
                     <div class="form-group">
                         <label>Duration Value</label>
                         <input type="number" id="durationValue" value="5" min="1">
@@ -689,29 +796,71 @@
                 </div>
 
                 <div class="card">
-                    <h3>🎯 Risk Management</h3>
+                    <h3>🛡️ Strategy Filters</h3>
+                    <div style="margin-bottom: 10px; font-size: 13px; color: #666;">
+                        Enable these to filter trade signals.
+                    </div>
                     
+                    <div class="toggle-container">
+                        <div class="toggle-label">Ben Round Numbers</div>
+                        <label class="switch">
+                            <input type="checkbox" id="filterRoundNumbers">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div style="font-size: 11px; color: #718096; margin-bottom: 15px;">
+                        Trades only near .00 or .50 levels (Strong Support/Resistance).
+                    </div>
+
+                    <div class="toggle-container">
+                        <div class="toggle-label">Ben High/Low</div>
+                        <label class="switch">
+                            <input type="checkbox" id="filterSwingLevels">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div style="font-size: 11px; color: #718096;">
+                        Trades only at recent Swing Highs (Sell) or Swing Lows (Buy).
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>🎯 Risk Management</h3>
                     <div class="form-group">
-                        <label>Stop Loss</label>
+                        <label>Stop Loss ($)</label>
                         <input type="number" id="stopLoss" value="10" min="0" step="0.01">
                     </div>
-
                     <div class="form-group">
-                        <label>Take Profit</label>
+                        <label>Take Profit ($)</label>
                         <input type="number" id="takeProfit" value="20" min="0" step="0.01">
                     </div>
-
                     <div style="padding: 15px; background: #f0fdf4; border-radius: 8px; margin-top: 15px;">
-                        <div style="font-size: 12px; color: #166534; margin-bottom: 5px;">💡 Ben Scalper Strategy Active</div>
-                        <div style="font-size: 11px; color: #15803d;">
-                            TSI (25,13,7) + AO + EMA (50,200) + ADX (14)
-                        </div>
+                        <div style="font-size: 12px; color: #166534; margin-bottom: 5px;">💡 Base Strategy</div>
+                        <div style="font-size: 11px; color: #15803d;">TSI + AO + EMA + ADX</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Trade Signal Card -->
-            <div class="trade-signal-card" id="tradeSignalCard" style="display: none;">
+            <div class="stats-grid" id="statsGrid" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-label">Total Trades</div>
+                    <div class="stat-value" id="totalTrades">0</div>
+                </div>
+                <div class="stat-card profit">
+                    <div class="stat-label">Wins</div>
+                    <div class="stat-value" id="winCount">0</div>
+                </div>
+                <div class="stat-card loss">
+                    <div class="stat-label">Losses</div>
+                    <div class="stat-value" id="lossCount">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">P/L</div>
+                    <div class="stat-value" id="profitLoss">0.00</div>
+                </div>
+            </div>
+
+            <div class="trade-signal-card" id="tradeSignalCard">
                 <h3>🎯 Trade Signal Monitor</h3>
                 <div class="signal-content">
                     <div class="signal-item">
@@ -725,12 +874,11 @@
                     </div>
                 </div>
                 <div class="signal-status no-signal" id="signalMessage">
-                    ⏳ Collecting market data... Need 200 ticks for analysis
+                    ⏳ Waiting for connection...
                 </div>
             </div>
 
-            <!-- Current Market Indicators -->
-            <div class="indicator-status" id="indicatorStatus" style="display: none;">
+            <div class="indicator-status" id="indicatorStatus">
                 <h4>📈 Live Market Indicators</h4>
                 <div class="indicator-item">
                     <span>TSI Value:</span>
@@ -754,7 +902,6 @@
                 </div>
             </div>
 
-            <!-- Control Buttons -->
             <div class="control-buttons" id="controlButtons" style="display: none;">
                 <button class="btn btn-success" id="buyBtn">
                     <span>📈</span> Buy (Rise)
@@ -770,29 +917,11 @@
                 </button>
             </div>
 
-            <!-- Statistics (Under Auto Trade Button) -->
-            <div class="stats-grid" id="statsGrid" style="display: none;">
-                <div class="stat-card">
-                    <div class="stat-label">Total Trades</div>
-                    <div class="stat-value" id="totalTrades">0</div>
+            <div class="trade-history" id="tradeHistory">
+                <div class="trade-history-header">
+                    <h3>📜 Trade History</h3>
+                    <button id="clearHistoryBtn" class="btn btn-secondary btn-sm">Clear History</button>
                 </div>
-                <div class="stat-card profit">
-                    <div class="stat-label">Wins</div>
-                    <div class="stat-value" id="winCount">0</div>
-                </div>
-                <div class="stat-card loss">
-                    <div class="stat-label">Losses</div>
-                    <div class="stat-value" id="lossCount">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">P/L</div>
-                    <div class="stat-value" id="profitLoss">0.00</div>
-                </div>
-            </div>
-
-            <!-- Trade History -->
-            <div class="trade-history" id="tradeHistory" style="display: none;">
-                <h3>📜 Trade History</h3>
                 <div class="scroll-container">
                     <div class="history-table">
                         <table>
@@ -816,11 +945,10 @@
                 </div>
             </div>
 
-            <!-- Log Panel -->
-            <div class="card" id="logCard" style="display: none;">
+            <div class="card" id="logCard">
                 <h3>📋 Activity Log</h3>
                 <div class="log-panel" id="logPanel">
-                    <div class="log-entry info">System initialized. Ready to connect...</div>
+                    <div class="log-entry info">System initialized. Waiting for login...</div>
                 </div>
             </div>
         </div>
@@ -832,13 +960,13 @@
         let accountData = null;
         let sessionStartTime = null;
         let sessionTimerInterval = null;
-        let autoTradeInterval = null;
         let isAutoTrading = false;
+        let isExplicitLogout = false;
+        let sessionToken = null;
+        let lastTradeTime = 0; 
         let tickHistory = [];
-        let tradeHistory = [];
         let currentMarketSymbol = '';
         let currentPrice = 0;
-        let priceUpdateInterval = null;
         let stats = {
             total: 0,
             wins: 0,
@@ -846,7 +974,8 @@
             profitLoss: 0
         };
 
-        // Indicators data
+        let tradeHistory = JSON.parse(localStorage.getItem('benScalperTradeHistory')) || [];
+
         let indicators = {
             tsi: { long: 25, short: 13, signal: 7, value: 0 },
             ao: { value: 0, prevValue: 0 },
@@ -871,6 +1000,10 @@
             const savedDurationValue = localStorage.getItem('durationValue');
             const savedStopLoss = localStorage.getItem('stopLoss');
             const savedTakeProfit = localStorage.getItem('takeProfit');
+            
+            // Load Filters
+            const savedRoundNumbers = localStorage.getItem('filterRoundNumbers') === 'true';
+            const savedSwingLevels = localStorage.getItem('filterSwingLevels') === 'true';
 
             if (savedMarket) document.getElementById('market').value = savedMarket;
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
@@ -878,9 +1011,13 @@
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
+            
+            document.getElementById('filterRoundNumbers').checked = savedRoundNumbers;
+            document.getElementById('filterSwingLevels').checked = savedSwingLevels;
+
+            updateTradeHistoryTable();
         }
 
-        // Save settings
         function saveSettings() {
             const token = document.getElementById('apiToken').value;
             const remember = document.getElementById('rememberToken').checked;
@@ -899,14 +1036,16 @@
             localStorage.setItem('durationValue', document.getElementById('durationValue').value);
             localStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
             localStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
+            
+            // Save Filters
+            localStorage.setItem('filterRoundNumbers', document.getElementById('filterRoundNumbers').checked);
+            localStorage.setItem('filterSwingLevels', document.getElementById('filterSwingLevels').checked);
         }
 
-        // Add settings change listeners
-        ['market', 'stakeAmount', 'durationType', 'durationValue', 'stopLoss', 'takeProfit'].forEach(id => {
+        ['market', 'stakeAmount', 'durationType', 'durationValue', 'stopLoss', 'takeProfit', 'filterRoundNumbers', 'filterSwingLevels'].forEach(id => {
             document.getElementById(id).addEventListener('change', saveSettings);
         });
 
-        // Market change listener for live price updates
         document.getElementById('market').addEventListener('change', function() {
             const newMarket = this.value;
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -915,7 +1054,6 @@
             }
         });
 
-        // Logging function
         function addLog(message, type = 'info') {
             const logPanel = document.getElementById('logPanel');
             const timestamp = new Date().toLocaleTimeString();
@@ -926,23 +1064,33 @@
             logPanel.scrollTop = logPanel.scrollHeight;
         }
 
-        // Update connection status
-        function updateConnectionStatus(connected) {
+        function updateConnectionStatus(status) {
             const statusDot = document.getElementById('statusDot');
             const statusText = document.getElementById('statusText');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const connectionBox = document.querySelector('.connection-status');
             
-            if (connected) {
+            statusDot.classList.remove('connected', 'reconnecting');
+            connectionBox.classList.remove('reconnecting');
+
+            if (status === 'connected') {
                 statusDot.classList.add('connected');
                 statusText.textContent = 'Connected';
+                logoutBtn.style.display = 'inline-block';
                 addLog('Successfully connected to Deriv API', 'success');
+            } else if (status === 'reconnecting') {
+                statusDot.classList.add('reconnecting');
+                connectionBox.classList.add('reconnecting');
+                statusText.textContent = 'Reconnecting...';
+                logoutBtn.style.display = 'none';
+                addLog('Connection lost. Attempting to reconnect...', 'error');
             } else {
-                statusDot.classList.remove('connected');
                 statusText.textContent = 'Disconnected';
+                logoutBtn.style.display = 'none';
                 addLog('Disconnected from Deriv API', 'error');
             }
         }
 
-        // Update Trade Signal Display
         function updateTradeSignalDisplay() {
             const marketSelect = document.getElementById('market');
             const marketName = marketSelect.options[marketSelect.selectedIndex].text;
@@ -950,11 +1098,11 @@
             document.getElementById('currentPrice').textContent = currentPrice.toFixed(2);
         }
 
-        // Connect to Deriv API
         function connectToDerivAPI(apiToken) {
             return new Promise((resolve, reject) => {
                 const appId = 1089;
                 ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${appId}`);
+                isExplicitLogout = false;
 
                 ws.onopen = () => {
                     addLog('WebSocket connection opened', 'info');
@@ -965,21 +1113,24 @@
                     const data = JSON.parse(msg.data);
                     
                     if (data.error) {
-                        addLog(`Error: ${data.error.message}`, 'error');
-                        reject(data.error);
+                        if (data.error.code !== 'AlreadySubscribed') {
+                            addLog(`Error: ${data.error.message}`, 'error');
+                        }
+                        if (data.msg_type === 'authorize') {
+                             reject(data.error);
+                        }
                         return;
                     }
 
                     if (data.msg_type === 'authorize') {
                         accountData = data.authorize;
+                        sessionToken = apiToken;
                         updateAccountInfo(data.authorize);
-                        updateConnectionStatus(true);
+                        updateConnectionStatus('connected');
                         startSessionTimer();
                         
-                        // Show all sections after login
-                        showMainInterface();
+                        updateUIForLogin();
                         
-                        // Subscribe to current market ticks
                         const market = document.getElementById('market').value;
                         subscribeToTicks(market);
                         
@@ -1003,156 +1154,148 @@
                     }
                 };
 
-                ws.onerror = (error) => {
-                    addLog('WebSocket error occurred', 'error');
-                    updateConnectionStatus(false);
-                    reject(error);
-                };
+                ws.onerror = (error) => {};
 
                 ws.onclose = () => {
-                    updateConnectionStatus(false);
-                    setTimeout(() => {
-                        if (accountData) {
-                            addLog('Attempting to reconnect...', 'info');
-                            const token = document.getElementById('apiToken').value;
-                            if (token) {
-                                connectToDerivAPI(token).catch(() => {});
+                    if (!isExplicitLogout) {
+                        updateConnectionStatus('reconnecting');
+                        setTimeout(() => {
+                            const tokenToUse = sessionToken || document.getElementById('apiToken').value;
+                            if (tokenToUse) {
+                                connectToDerivAPI(tokenToUse);
                             }
-                        }
-                    }, 5000);
+                        }, 5000);
+                    } else {
+                        updateConnectionStatus('disconnected');
+                    }
                 };
             });
         }
 
-        // Show main interface after login
-        function showMainInterface() {
+        window.addEventListener('online', () => {
+            if (!isExplicitLogout && sessionToken) {
+                addLog('Network detected. Reconnecting immediately...', 'info');
+                connectToDerivAPI(sessionToken);
+            }
+        });
+
+        function updateUIForLogin() {
+            document.getElementById('loginCard').style.display = 'none';
             document.getElementById('accountInfo').style.display = 'grid';
-            document.getElementById('tradingSettings').style.display = 'grid';
-            document.getElementById('tradeSignalCard').style.display = 'block';
-            document.getElementById('indicatorStatus').style.display = 'block';
             document.getElementById('controlButtons').style.display = 'flex';
             document.getElementById('statsGrid').style.display = 'grid';
-            document.getElementById('tradeHistory').style.display = 'block';
-            document.getElementById('logCard').style.display = 'block';
-            document.getElementById('loginCard').style.display = 'none';
+            document.getElementById('signalMessage').textContent = '⏳ Collecting market data... Need 200 ticks';
         }
 
-        // Update account information
         function updateAccountInfo(authData) {
             document.getElementById('accountType').textContent = authData.is_virtual ? 'Demo' : 'Real';
             document.getElementById('accountCurrency').textContent = authData.currency;
             document.getElementById('accountBalance').textContent = parseFloat(authData.balance).toFixed(2);
-            
-            addLog(`Account loaded: ${authData.currency} ${parseFloat(authData.balance).toFixed(2)}`, 'success');
-
             ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
         }
 
-        // Update balance
         function updateBalance(balanceData) {
             document.getElementById('accountBalance').textContent = parseFloat(balanceData.balance).toFixed(2);
         }
 
-        // Session timer
         function startSessionTimer() {
+            if (sessionTimerInterval) clearInterval(sessionTimerInterval); 
             sessionStartTime = Date.now();
             sessionTimerInterval = setInterval(() => {
                 const elapsed = Date.now() - sessionStartTime;
                 const hours = Math.floor(elapsed / 3600000);
                 const minutes = Math.floor((elapsed % 3600000) / 60000);
                 const seconds = Math.floor((elapsed % 60000) / 1000);
-                
                 document.getElementById('sessionTimer').textContent = 
                     `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             }, 1000);
         }
 
-        // Calculate TSI (True Strength Index)
+        // --- Indicators ---
         function calculateTSI(prices) {
             if (prices.length < indicators.tsi.long + indicators.tsi.signal) return 0;
-            
             const changes = [];
-            for (let i = 1; i < prices.length; i++) {
-                changes.push(prices[i] - prices[i - 1]);
-            }
-            
+            for (let i = 1; i < prices.length; i++) changes.push(prices[i] - prices[i - 1]);
             const ema1 = changes.slice(-indicators.tsi.long).reduce((a, b) => a + b, 0) / indicators.tsi.long;
             const ema2 = changes.slice(-indicators.tsi.short).reduce((a, b) => a + b, 0) / indicators.tsi.short;
             return (ema2 / ema1) * 100 || 0;
         }
 
-        // Calculate AO (Awesome Oscillator)
         function calculateAO(prices) {
             if (prices.length < 34) return 0;
-            
             const sma5 = prices.slice(-5).reduce((a, b) => a + b, 0) / 5;
             const sma34 = prices.slice(-34).reduce((a, b) => a + b, 0) / 34;
-            
             return sma5 - sma34;
         }
 
-        // Calculate EMA
         function calculateEMA(prices, period) {
             if (prices.length < period) return 0;
-            
             const k = 2 / (period + 1);
             let ema = prices.slice(-period).reduce((a, b) => a + b, 0) / period;
-            
-            for (let i = prices.length - period + 1; i < prices.length; i++) {
-                ema = (prices[i] - ema) * k + ema;
-            }
-            
+            for (let i = prices.length - period + 1; i < prices.length; i++) ema = (prices[i] - ema) * k + ema;
             return ema;
         }
 
-        // Calculate ADX
         function calculateADX(highs, lows, closes) {
             if (closes.length < indicators.adx.period + 1) return 0;
-            
-            let trSum = 0;
-            let dmPlusSum = 0;
-            let dmMinusSum = 0;
-            
+            let trSum = 0; let dmPlusSum = 0; let dmMinusSum = 0;
             for (let i = 1; i < closes.length; i++) {
-                const tr = Math.max(highs[i] - lows[i], 
-                                   Math.abs(highs[i] - closes[i - 1]), 
-                                   Math.abs(lows[i] - closes[i - 1]));
+                const tr = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1]));
                 const dmPlus = highs[i] - highs[i - 1];
                 const dmMinus = lows[i - 1] - lows[i];
-                
                 trSum += tr;
                 if (dmPlus > dmMinus && dmPlus > 0) dmPlusSum += dmPlus;
                 if (dmMinus > dmPlus && dmMinus > 0) dmMinusSum += dmMinus;
             }
-            
             const diPlus = (dmPlusSum / trSum) * 100;
             const diMinus = (dmMinusSum / trSum) * 100;
-            const dx = Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100;
-            
-            return dx || 0;
+            return (Math.abs(diPlus - diMinus) / (diPlus + diMinus) * 100) || 0;
         }
 
-        // Analyze market signals
+        // --- NEW: Filter Helper Functions ---
+        
+        function checkRoundNumber(price) {
+            // Check if price is near a whole number ending in 00 or 50
+            // Logic: Modulo 50. If remainder is close to 0 or 50.
+            const tolerance = 1.0; 
+            const rem = price % 50;
+            // E.g. Price 2000.5 -> rem 0.5 (Pass)
+            // E.g. Price 2049.5 -> rem 49.5 (Pass)
+            return rem < tolerance || rem > (50 - tolerance);
+        }
+
+        function checkSwingLevels(price, history, type) {
+            // Look back 100 ticks, excluding last 5 (current trend)
+            if (history.length < 100) return false;
+            
+            const searchWindow = history.slice(-100, -5).map(t => t.quote);
+            
+            if (type === 'BUY') {
+                // Support = Lowest Low
+                const support = Math.min(...searchWindow);
+                // Within 0.05% proximity
+                return Math.abs(price - support) / price < 0.0005;
+            } else {
+                // Resistance = Highest High
+                const resistance = Math.max(...searchWindow);
+                return Math.abs(price - resistance) / price < 0.0005;
+            }
+        }
+
         function analyzeMarketSignals() {
             if (tickHistory.length < 200) {
-                const signalMessage = document.getElementById('signalMessage');
-                signalMessage.className = 'signal-status no-signal';
-                signalMessage.textContent = `⏳ Collecting market data... ${tickHistory.length}/200 ticks`;
-                document.getElementById('signalStatus').textContent = 'Waiting';
+                document.getElementById('signalMessage').textContent = `⏳ Collecting market data... ${tickHistory.length}/200 ticks`;
                 return null;
             }
 
             const prices = tickHistory.map(t => t.quote);
-            const currentPrice = prices[prices.length - 1];
-            
-            // Calculate all indicators
             const tsiValue = calculateTSI(prices);
             const aoValue = calculateAO(prices);
             const ema50 = calculateEMA(prices, 50);
             const ema200 = calculateEMA(prices, 200);
             const adxValue = calculateADX(prices, prices, prices);
-            
-            // Update indicator values
+            const prevTsiValue = indicators.tsi.value;
+
             indicators.tsi.value = tsiValue;
             indicators.ao.prevValue = indicators.ao.value;
             indicators.ao.value = aoValue;
@@ -1160,196 +1303,166 @@
             indicators.ema200 = ema200;
             indicators.adx.value = adxValue;
             
-            // Update UI with live indicator values
             document.getElementById('tsiSignal').textContent = tsiValue.toFixed(2);
             document.getElementById('aoSignal').textContent = aoValue > 0 ? `Bullish (${aoValue.toFixed(4)})` : `Bearish (${aoValue.toFixed(4)})`;
             document.getElementById('adxSignal').textContent = adxValue.toFixed(2);
             document.getElementById('ema50Value').textContent = ema50.toFixed(5);
             document.getElementById('ema200Value').textContent = ema200.toFixed(5);
             
-            // Check for bullish divergence (BUY signal)
+            // Base Signals
             const priceLowerLow = prices[prices.length - 1] < prices[prices.length - 50];
-            const tsiHigherLow = tsiValue > -20 && tsiValue < indicators.tsi.value;
+            const tsiHigherLow = tsiValue > -20 && tsiValue > prevTsiValue; 
             const aoGreen = aoValue > indicators.ao.prevValue;
             const adxFalling = adxValue < 25;
             const priceNearEma50 = Math.abs(currentPrice - ema50) / currentPrice < 0.02;
             
+            let signal = null;
+
             if (priceLowerLow && tsiHigherLow && aoGreen && adxFalling && priceNearEma50) {
-                const signalMessage = document.getElementById('signalMessage');
-                signalMessage.className = 'signal-status buy-signal';
-                signalMessage.innerHTML = `
-                    <strong>📈 BUY SIGNAL DETECTED</strong><br>
-                    <small>Bullish divergence confirmed - All indicators aligned for upward movement</small>
-                `;
-                document.getElementById('signalStatus').textContent = 'BUY';
-                document.getElementById('signalStatus').style.color = '#10b981';
-                addLog('BUY signal: Bullish divergence detected', 'success');
-                return 'BUY';
+                signal = 'BUY';
             }
             
-            // Check for bearish divergence (SELL signal)
             const priceHigherHigh = prices[prices.length - 1] > prices[prices.length - 50];
-            const tsiLowerHigh = tsiValue > 20 && tsiValue < indicators.tsi.value;
+            const tsiLowerHigh = tsiValue < 20 && tsiValue < prevTsiValue;
             const aoRed = aoValue < indicators.ao.prevValue;
             const priceAboveEma50 = Math.abs(currentPrice - ema50) / currentPrice < 0.02;
             
             if (priceHigherHigh && tsiLowerHigh && aoRed && adxFalling && priceAboveEma50) {
-                const signalMessage = document.getElementById('signalMessage');
-                signalMessage.className = 'signal-status sell-signal';
-                signalMessage.innerHTML = `
-                    <strong>📉 SELL SIGNAL DETECTED</strong><br>
-                    <small>Bearish divergence confirmed - All indicators aligned for downward movement</small>
-                `;
-                document.getElementById('signalStatus').textContent = 'SELL';
-                document.getElementById('signalStatus').style.color = '#ef4444';
-                addLog('SELL signal: Bearish divergence detected', 'success');
-                return 'SELL';
+                signal = 'SELL';
+            }
+
+            // --- Apply Filters ---
+            if (signal) {
+                const useRoundNumbers = document.getElementById('filterRoundNumbers').checked;
+                const useSwingLevels = document.getElementById('filterSwingLevels').checked;
+
+                if (useRoundNumbers) {
+                    if (!checkRoundNumber(currentPrice)) {
+                        document.getElementById('signalMessage').textContent = `⏳ Signal ignored: Not near Round Number`;
+                        return null; 
+                    }
+                }
+
+                if (useSwingLevels) {
+                    if (!checkSwingLevels(currentPrice, tickHistory, signal)) {
+                        document.getElementById('signalMessage').textContent = `⏳ Signal ignored: Not near Swing Level`;
+                        return null;
+                    }
+                }
+                
+                updateSignalUI(signal);
+                return signal;
             }
             
-            const signalMessage = document.getElementById('signalMessage');
-            signalMessage.className = 'signal-status no-signal';
-            signalMessage.innerHTML = `
-                <strong>⏳ No Signal</strong><br>
-                <small>Monitoring market conditions - Waiting for optimal entry point</small>
-            `;
-            document.getElementById('signalStatus').textContent = 'No Signal';
-            document.getElementById('signalStatus').style.color = '#667eea';
+            updateSignalUI('NONE');
             return null;
         }
 
-        // Handle tick data
+        function updateSignalUI(type) {
+            const signalMessage = document.getElementById('signalMessage');
+            const signalStatus = document.getElementById('signalStatus');
+
+            if (type === 'BUY') {
+                signalMessage.className = 'signal-status buy-signal';
+                signalMessage.innerHTML = `<strong>📈 BUY SIGNAL DETECTED</strong><br><small>Bullish divergence confirmed</small>`;
+                signalStatus.textContent = 'BUY';
+                signalStatus.style.color = '#10b981';
+            } else if (type === 'SELL') {
+                signalMessage.className = 'signal-status sell-signal';
+                signalMessage.innerHTML = `<strong>📉 SELL SIGNAL DETECTED</strong><br><small>Bearish divergence confirmed</small>`;
+                signalStatus.textContent = 'SELL';
+                signalStatus.style.color = '#ef4444';
+            } else {
+                signalMessage.className = 'signal-status no-signal';
+                signalMessage.innerHTML = `<strong>⏳ No Signal</strong><br><small>Monitoring market conditions...</small>`;
+                signalStatus.textContent = 'No Signal';
+                signalStatus.style.color = '#667eea';
+            }
+        }
+
         function handleTickData(data) {
             if (data.tick) {
+                if (data.tick.symbol !== currentMarketSymbol) return;
                 tickHistory.push(data.tick);
                 currentPrice = data.tick.quote;
-                
-                // Update live price display
                 document.getElementById('currentPrice').textContent = currentPrice.toFixed(2);
+                if (tickHistory.length > 300) tickHistory.shift();
                 
-                // Keep only last 300 ticks
-                if (tickHistory.length > 300) {
-                    tickHistory.shift();
+                const signal = analyzeMarketSignals();
+
+                if (isAutoTrading && signal) {
+                    const now = Date.now();
+                    if (now - lastTradeTime > 30000) {
+                        placeTrade(signal);
+                        lastTradeTime = now;
+                        addLog(`Auto-trade executing ${signal}. Cooldown started...`, 'info');
+                    }
                 }
-                
-                // Analyze signals
-                analyzeMarketSignals();
             }
         }
 
-        // Subscribe to ticks
         function subscribeToTicks(symbol) {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                addLog('Not connected to Deriv API', 'error');
-                return;
-            }
-
-            // Clear previous tick history when switching markets
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ forget_all: 'ticks' }));
             tickHistory = [];
             currentMarketSymbol = symbol;
-
-            ws.send(JSON.stringify({
-                ticks: symbol,
-                subscribe: 1
-            }));
-            
+            ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
             updateTradeSignalDisplay();
-            addLog(`Subscribed to ${symbol} live feed`, 'info');
+            addLog(`Switched to ${symbol}`, 'info');
         }
 
-        // Place trade
         function placeTrade(tradeType) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 addLog('Not connected to Deriv API', 'error');
                 return;
             }
-
             const market = document.getElementById('market').value;
             const stake = parseFloat(document.getElementById('stakeAmount').value);
             const durationType = document.getElementById('durationType').value;
             const durationValue = parseInt(document.getElementById('durationValue').value);
 
-            if (stake < 0.35) {
-                addLog('Minimum stake is 0.35', 'error');
-                return;
-            }
-
             const proposal = {
-                proposal: 1,
-                amount: stake,
-                basis: 'stake',
+                proposal: 1, amount: stake, basis: 'stake',
                 contract_type: tradeType === 'BUY' ? 'CALL' : 'PUT',
                 currency: accountData.currency,
-                duration: durationValue,
-                duration_unit: durationType,
-                symbol: market
+                duration: durationValue, duration_unit: durationType, symbol: market
             };
 
             addLog(`Placing ${tradeType} order for ${market}...`, 'info');
-
             ws.send(JSON.stringify(proposal));
 
             const proposalHandler = (msg) => {
                 const data = JSON.parse(msg.data);
-                
                 if (data.msg_type === 'proposal') {
+                    ws.removeEventListener('message', proposalHandler);
                     if (data.error) {
                         addLog(`Proposal error: ${data.error.message}`, 'error');
-                        ws.removeEventListener('message', proposalHandler);
                         return;
                     }
-
-                    ws.send(JSON.stringify({
-                        buy: data.proposal.id,
-                        price: stake
-                    }));
-
-                    ws.removeEventListener('message', proposalHandler);
+                    ws.send(JSON.stringify({ buy: data.proposal.id, price: stake }));
                 }
             };
-
             ws.addEventListener('message', proposalHandler);
+            setTimeout(() => { ws.removeEventListener('message', proposalHandler); }, 5000);
         }
 
-        // Handle buy response
         function handleBuyResponse(data) {
             if (data.buy) {
                 addLog(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
-                
-                ws.send(JSON.stringify({
-                    proposal_open_contract: 1,
-                    contract_id: data.buy.contract_id,
-                    subscribe: 1
-                }));
+                ws.send(JSON.stringify({ proposal_open_contract: 1, contract_id: data.buy.contract_id, subscribe: 1 }));
             }
         }
 
-        // Handle contract update
         function handleContractUpdate(data) {
             const contract = data.proposal_open_contract;
-            
             if (!contract) return;
-
             if (contract.status === 'sold' || contract.is_sold) {
                 const profit = parseFloat(contract.profit);
                 const isWin = profit > 0;
-                
                 stats.total++;
                 stats.profitLoss += profit;
-                
-                if (isWin) {
-                    stats.wins++;
-                } else {
-                    stats.losses++;
-                }
-                
-                document.getElementById('totalTrades').textContent = stats.total;
-                document.getElementById('winCount').textContent = stats.wins;
-                document.getElementById('lossCount').textContent = stats.losses;
-                document.getElementById('profitLoss').textContent = stats.profitLoss.toFixed(2);
-                
-                const plElement = document.getElementById('profitLoss');
-                plElement.style.color = stats.profitLoss >= 0 ? '#10b981' : '#ef4444';
-                
+                if (isWin) stats.wins++; else stats.losses++;
+                updateStatsDisplay();
                 addTradeToHistory({
                     time: new Date().toLocaleTimeString(),
                     market: document.getElementById('market').value,
@@ -1358,46 +1471,82 @@
                     result: profit,
                     isWin: isWin
                 });
-                
                 addLog(`Trade closed: ${isWin ? 'WIN' : 'LOSS'} - P/L: ${profit.toFixed(2)}`, isWin ? 'success' : 'error');
-                
-                const stopLoss = parseFloat(document.getElementById('stopLoss').value);
-                const takeProfit = parseFloat(document.getElementById('takeProfit').value);
-                
-                if (stopLoss > 0 && Math.abs(stats.profitLoss) >= stopLoss) {
-                    addLog('Stop loss reached! Stopping auto trade.', 'error');
-                    stopAutoTrade();
-                }
-                
-                if (takeProfit > 0 && stats.profitLoss >= takeProfit) {
-                    addLog('Take profit reached! Stopping auto trade.', 'success');
-                    stopAutoTrade();
-                }
+                checkRiskManagement();
             }
         }
 
-        // Add trade to history
+        function checkRiskManagement() {
+            const stopLoss = parseFloat(document.getElementById('stopLoss').value);
+            const takeProfit = parseFloat(document.getElementById('takeProfit').value);
+            if (stopLoss > 0 && Math.abs(stats.profitLoss) >= stopLoss && stats.profitLoss < 0) {
+                addLog('Stop loss reached! Stopping auto trade.', 'error');
+                stopAutoTrade();
+            }
+            if (takeProfit > 0 && stats.profitLoss >= takeProfit) {
+                addLog('Take profit reached! Stopping auto trade.', 'success');
+                stopAutoTrade();
+            }
+        }
+
         function addTradeToHistory(trade) {
             tradeHistory.unshift(trade);
-            
-            if (tradeHistory.length > 50) {
-                tradeHistory.pop();
-            }
-            
+            if (tradeHistory.length > 100) tradeHistory.pop();
+            localStorage.setItem('benScalperTradeHistory', JSON.stringify(tradeHistory));
             updateTradeHistoryTable();
         }
 
-        // Update trade history table
+        function clearTradeHistory() {
+            if (confirm('Are you sure you want to clear the entire trade history?')) {
+                tradeHistory = [];
+                localStorage.setItem('benScalperTradeHistory', JSON.stringify([]));
+                updateTradeHistoryTable();
+                addLog('Trade history cleared.', 'info');
+            }
+        }
+
+        function logout() {
+            if (confirm('Are you sure you want to logout? This will clear your token.')) {
+                stopAutoTrade();
+                isExplicitLogout = true;
+                sessionToken = null;
+                if (ws) ws.close();
+                localStorage.removeItem('derivApiToken');
+                localStorage.removeItem('rememberToken');
+                document.getElementById('rememberToken').checked = false;
+                document.getElementById('apiToken').value = '';
+
+                document.getElementById('accountInfo').style.display = 'none';
+                document.getElementById('controlButtons').style.display = 'none';
+                document.getElementById('statsGrid').style.display = 'none';
+                document.getElementById('loginCard').style.display = 'block';
+                document.getElementById('signalMessage').textContent = '⏳ Waiting for connection...';
+
+                const loginBtn = document.getElementById('loginBtn');
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<span>🚀</span> Connect';
+                
+                updateConnectionStatus('disconnected');
+                addLog('Logged out successfully.', 'success');
+            }
+        }
+
+        function updateStatsDisplay() {
+            document.getElementById('totalTrades').textContent = stats.total;
+            document.getElementById('winCount').textContent = stats.wins;
+            document.getElementById('lossCount').textContent = stats.losses;
+            document.getElementById('profitLoss').textContent = stats.profitLoss.toFixed(2);
+            document.getElementById('profitLoss').style.color = stats.profitLoss >= 0 ? '#10b981' : '#ef4444';
+        }
+
         function updateTradeHistoryTable() {
             const tbody = document.getElementById('tradeHistoryBody');
             tbody.innerHTML = '';
-            
             if (tradeHistory.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #9ca3af;">No trades yet</td></tr>';
                 return;
             }
-            
-            tradeHistory.slice(0, 10).forEach((trade, index) => {
+            tradeHistory.slice(0, 50).forEach((trade, index) => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${index + 1}</td>
@@ -1413,104 +1562,77 @@
             });
         }
 
-        // Start auto trade
         function startAutoTrade() {
             if (isAutoTrading) return;
-            
             isAutoTrading = true;
             document.getElementById('autoTradeBtn').style.display = 'none';
             document.getElementById('stopAutoTradeBtn').style.display = 'inline-flex';
-            
-            const market = document.getElementById('market').value;
-            subscribeToTicks(market);
-            
             addLog('Auto trade started - Monitoring for signals...', 'success');
-            
-            autoTradeInterval = setInterval(() => {
-                const signal = analyzeMarketSignals();
-                
-                if (signal === 'BUY' || signal === 'SELL') {
-                    placeTrade(signal);
-                    
-                    clearInterval(autoTradeInterval);
-                    setTimeout(() => {
-                        if (isAutoTrading) {
-                            autoTradeInterval = setInterval(() => {
-                                const newSignal = analyzeMarketSignals();
-                                if (newSignal === 'BUY' || newSignal === 'SELL') {
-                                    placeTrade(newSignal);
-                                }
-                            }, 10000);
-                        }
-                    }, 30000);
-                }
-            }, 10000);
         }
 
-        // Stop auto trade
         function stopAutoTrade() {
             isAutoTrading = false;
-            if (autoTradeInterval) {
-                clearInterval(autoTradeInterval);
-                autoTradeInterval = null;
-            }
-            
             document.getElementById('autoTradeBtn').style.display = 'inline-flex';
             document.getElementById('stopAutoTradeBtn').style.display = 'none';
-            
             addLog('Auto trade stopped', 'info');
         }
 
-        // Login button handler
         document.getElementById('loginBtn').addEventListener('click', async () => {
             const apiToken = document.getElementById('apiToken').value.trim();
-            
             if (!apiToken) {
                 addLog('Please enter your API token', 'error');
                 return;
             }
-
             const loginBtn = document.getElementById('loginBtn');
             loginBtn.disabled = true;
             loginBtn.textContent = 'Connecting...';
-
             try {
                 await connectToDerivAPI(apiToken);
                 saveSettings();
                 addLog('Login successful! Ready to trade.', 'success');
             } catch (error) {
-                addLog('Login failed. Please check your API token.', 'error');
+                addLog('Login failed.', 'error');
                 loginBtn.disabled = false;
                 loginBtn.innerHTML = '<span>🚀</span> Connect';
             }
         });
 
-        // Manual trade buttons
-        document.getElementById('buyBtn').addEventListener('click', () => {
-            placeTrade('BUY');
-        });
-
-        document.getElementById('sellBtn').addEventListener('click', () => {
-            placeTrade('SELL');
-        });
-
-        // Auto trade buttons
+        document.getElementById('buyBtn').addEventListener('click', () => placeTrade('BUY'));
+        document.getElementById('sellBtn').addEventListener('click', () => placeTrade('SELL'));
         document.getElementById('autoTradeBtn').addEventListener('click', startAutoTrade);
         document.getElementById('stopAutoTradeBtn').addEventListener('click', stopAutoTrade);
+        document.getElementById('logoutBtn').addEventListener('click', logout);
+        document.getElementById('clearHistoryBtn').addEventListener('click', clearTradeHistory);
 
-        // Initialize on page load
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             loadSettings();
             addLog('Ben Scalper Bot initialized', 'success');
-            addLog('Strategy: TSI + AO + EMA + ADX divergence trading', 'info');
+
+            const savedToken = localStorage.getItem('derivApiToken');
+            const rememberToken = localStorage.getItem('rememberToken') === 'true';
+
+            if (savedToken && rememberToken) {
+                addLog('Auto-login: Connecting with saved token...', 'info');
+                const loginBtn = document.getElementById('loginBtn');
+                loginBtn.disabled = true;
+                loginBtn.textContent = 'Connecting...';
+                
+                try {
+                    await connectToDerivAPI(savedToken);
+                    addLog('Auto-login successful!', 'success');
+                } catch (error) {
+                    addLog('Auto-login failed. Please connect manually.', 'error');
+                    loginBtn.disabled = false;
+                    loginBtn.innerHTML = '<span>🚀</span> Connect';
+                }
+            }
         });
 
-        // Handle page refresh
         window.addEventListener('beforeunload', () => {
-            if (ws) {
-                ws.close();
-            }
+            if (ws) ws.close();
         });
     </script>
 </body>
 </html>
+
+
