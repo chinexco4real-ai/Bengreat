@@ -70,7 +70,7 @@
         }
         .filter-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(3, 1fr); /* Adjusted for fewer items */
             gap: 10px;
             margin-bottom: 15px;
         }
@@ -80,7 +80,7 @@
             align-items: center;
             gap: 5px;
         }
-        .filter-item label { font-size: 10px; color: #94a3b8; font-weight: bold; text-transform: uppercase; text-align: center; }
+        .filter-item label { font-size: 9px; color: #94a3b8; font-weight: bold; text-transform: uppercase; text-align: center; white-space: nowrap; }
         
         .restart-row {
             display: flex;
@@ -109,7 +109,6 @@
         input:checked + .slider { background-color: #10b981; }
         input:checked + .slider:before { transform: translateX(20px); }
         
-        /* Smaller toggles for market list */
         .cycler-grid .toggle-switch { width: 30px; height: 16px; }
         .cycler-grid .slider:before { height: 12px; width: 12px; }
         .cycler-grid input:checked + .slider:before { transform: translateX(14px); }
@@ -143,6 +142,7 @@
             .inputs-grid { grid-template-columns: 1fr 1fr; }
             .control-btn-group { grid-template-columns: 1fr 1fr; }
             .cycler-grid { grid-template-columns: 1fr 1fr; }
+            .filter-grid { grid-template-columns: repeat(3, 1fr); }
         }
     </style>
 </head>
@@ -208,7 +208,7 @@
                         </div>
                     </div>
                     <div style="font-size: 12px; color: #94a3b8; margin-top: 15px;">
-                        <strong>Analysis Factors:</strong> Multi-Timeframe Analysis (1m/5m/15m), Trend Strength, Momentum, Volatility Detection, Support/Resistance, Historical Win Rate
+                        <strong>Analysis Factors:</strong> Multi-Timeframe Analysis (1m/5m/15m), Trend Strength, Momentum, Volatility Detection, Support/Resistance
                     </div>
                 </div>
             </div>
@@ -291,30 +291,37 @@
                         <div class="log-header" style="margin-bottom: 10px;">Signal Filters</div>
                         <div class="filter-grid">
                             <div class="filter-item">
-                                <label>ADX (Trend)</label>
+                                <label>Timeframe Check</label>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="filterADX" onchange="logInput('ADX Filter', this.checked); saveAllSettings()">
+                                    <input type="checkbox" id="filterTimeframe" checked onchange="logInput('Timeframe Filter', this.checked); saveAllSettings()">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                             <div class="filter-item">
-                                <label>ATR Range</label>
+                                <label>Consistency</label>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="filterATR" onchange="logInput('ATR Filter', this.checked); saveAllSettings()">
+                                    <input type="checkbox" id="filterConsistency" checked onchange="logInput('Consistency Filter', this.checked); saveAllSettings()">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                             <div class="filter-item">
-                                <label>RSI</label>
+                                <label>Momentum</label>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="filterRSI" onchange="logInput('RSI Filter', this.checked); saveAllSettings()">
+                                    <input type="checkbox" id="filterMomentum" checked onchange="logInput('Momentum Filter', this.checked); saveAllSettings()">
                                     <span class="slider"></span>
                                 </label>
                             </div>
                             <div class="filter-item">
-                                <label>EMA Cross</label>
+                                <label>MA Conflict</label>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="filterEMA" onchange="logInput('EMA Filter', this.checked); saveAllSettings()">
+                                    <input type="checkbox" id="filterMAConflict" checked onchange="logInput('MA Conflict Filter', this.checked); saveAllSettings()">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="filter-item">
+                                <label>Trend Stable</label>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="filterTrendStability" checked onchange="logInput('Trend Stability', this.checked); saveAllSettings()">
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -428,7 +435,6 @@
         
         // NEW: Scanner enhancement variables
         let lastScanData = null;
-        let marketStateHistory = [];
         let avgVol = 0;
 
         const cyclerMarketOrder = ['R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'stpRNG', 'stpRNG2', 'stpRNG3', 'stpRNG4', 'stpRNG5'];
@@ -515,11 +521,12 @@
                 tradeMode: tradeMode,
                 isReverseMode: isReverseMode,
                 isCyclerActive: isCyclerActive,
-                // SAVE ALL 4 FILTERS
-                filterADX: document.getElementById('filterADX').checked,
-                filterATR: document.getElementById('filterATR').checked,
-                filterRSI: document.getElementById('filterRSI').checked,
-                filterEMA: document.getElementById('filterEMA').checked,
+                // SAVE ALL NEW LOGIC FILTERS
+                filterTimeframe: document.getElementById('filterTimeframe').checked,
+                filterConsistency: document.getElementById('filterConsistency').checked,
+                filterMomentum: document.getElementById('filterMomentum').checked,
+                filterMAConflict: document.getElementById('filterMAConflict').checked,
+                filterTrendStability: document.getElementById('filterTrendStability').checked,
                 toggles: {}
             };
             
@@ -544,11 +551,12 @@
                 document.getElementById('scanInterval').value = s.scanInterval || 5;
                 document.getElementById('cyclerRestartHours').value = s.cyclerRestartHours || 0;
                 
-                // LOAD ALL 4 FILTERS
-                if (s.filterADX !== undefined) document.getElementById('filterADX').checked = s.filterADX;
-                if (s.filterATR !== undefined) document.getElementById('filterATR').checked = s.filterATR;
-                if (s.filterRSI !== undefined) document.getElementById('filterRSI').checked = s.filterRSI;
-                if (s.filterEMA !== undefined) document.getElementById('filterEMA').checked = s.filterEMA;
+                // LOAD ALL LOGIC FILTERS
+                if (s.filterTimeframe !== undefined) document.getElementById('filterTimeframe').checked = s.filterTimeframe;
+                if (s.filterConsistency !== undefined) document.getElementById('filterConsistency').checked = s.filterConsistency;
+                if (s.filterMomentum !== undefined) document.getElementById('filterMomentum').checked = s.filterMomentum;
+                if (s.filterMAConflict !== undefined) document.getElementById('filterMAConflict').checked = s.filterMAConflict;
+                if (s.filterTrendStability !== undefined) document.getElementById('filterTrendStability').checked = s.filterTrendStability;
 
                 currentMarket = s.marketType || 'R_50';
                 document.getElementById('scannerMarket').textContent = currentMarket;
@@ -741,14 +749,6 @@
             }
             updateStats();
 
-            // Update market state history with result
-            if (marketStateHistory.length > 0) {
-                const lastState = marketStateHistory[marketStateHistory.length - 1];
-                if (lastState && lastState.result === null) {
-                    lastState.result = profit > 0 ? 'WIN' : 'LOSS';
-                }
-            }
-
             if (isCyclerActive) {
                 checkCyclerStatus();
             }
@@ -845,87 +845,10 @@
             startCountdown();
         }
 
-        // --- HELPER FUNCTIONS FOR FILTERS ---
-        function calculateRSI(prices) {
-            if (prices.length < 14) return 50; 
-            let gains = 0, losses = 0;
-            for (let i = 1; i < prices.length; i++) {
-                const diff = prices[i] - prices[i - 1];
-                if (diff >= 0) gains += diff;
-                else losses += Math.abs(diff);
-            }
-            if (losses === 0) return 100;
-            const rs = gains / losses;
-            return 100 - (100 / (1 + rs));
-        }
+        // --- HELPER FUNCTIONS ---
+        // (Removed: RSI, ADX, AverageRange)
 
-        // --- ADX Calculation (Simplified for Tick Data) ---
-        function calculateADX(prices, period = 14) {
-            if (prices.length < period * 2) return 0;
-            
-            let TRs = [], PlusDMs = [], MinusDMs = [];
-            
-            // 1. Compute TR, +DM, -DM for all points
-            for(let i=1; i<prices.length; i++) {
-                let up = prices[i] - prices[i-1];
-                let down = prices[i-1] - prices[i];
-                let pDM = (up > down && up > 0) ? up : 0;
-                let mDM = (down > up && down > 0) ? down : 0;
-                let trVal = Math.abs(prices[i] - prices[i-1]);
-                TRs.push(trVal);
-                PlusDMs.push(pDM);
-                MinusDMs.push(mDM);
-            }
-
-            // 2. Smoothed TR, +DM, -DM (Wilder's Smoothing)
-            let sTR = 0, sPDM = 0, sMDM = 0;
-            for(let i=0; i<period; i++) {
-                sTR += TRs[i]; sPDM += PlusDMs[i]; sMDM += MinusDMs[i];
-            }
-            
-            let DXs = [];
-            let pDI = (sTR === 0) ? 0 : 100 * sPDM / sTR;
-            let mDI = (sTR === 0) ? 0 : 100 * sMDM / sTR;
-            let dx = (pDI + mDI === 0) ? 0 : 100 * Math.abs(pDI - mDI) / (pDI + mDI);
-            
-            // Smooth subsequent
-            for(let i=period; i<TRs.length; i++) {
-                sTR = sTR - (sTR/period) + TRs[i];
-                sPDM = sPDM - (sPDM/period) + PlusDMs[i];
-                sMDM = sMDM - (sMDM/period) + MinusDMs[i];
-                
-                pDI = (sTR === 0) ? 0 : 100 * sPDM / sTR;
-                mDI = (sTR === 0) ? 0 : 100 * sMDM / sTR;
-                let denom = pDI + mDI;
-                let currentDX = (denom === 0) ? 0 : 100 * Math.abs(pDI - mDI) / denom;
-                DXs.push(currentDX);
-            }
-            
-            // 3. ADX is smoothed DX
-            if (DXs.length < period) return dx;
-            
-            let sumDX = 0;
-            for(let i=0; i<period; i++) sumDX += DXs[i];
-            let adx = sumDX / period;
-            
-            for(let i=period; i<DXs.length; i++) {
-                adx = ((adx * (period - 1)) + DXs[i]) / period;
-            }
-            return adx;
-        }
-
-        function calculateAverageRange(prices, count) {
-            if (prices.length < 2) return 0;
-            let sum = 0;
-            let actualCount = 0;
-            for (let i = prices.length - 1; i > prices.length - 1 - count && i > 0; i--) {
-                sum += Math.abs(prices[i] - prices[i-1]);
-                actualCount++;
-            }
-            return actualCount === 0 ? 0 : sum / actualCount;
-        }
-
-        // --- NEW HELPER: EMA Calculation ---
+        // EMA Calculation (Required for Stage 5 MA Conflict)
         function calculateEMA(prices, period) {
             if (prices.length < period) return null;
             const k = 2 / (period + 1);
@@ -1025,39 +948,6 @@
             return { direction, strength, divergence };
         }
 
-        // 8. Market State Classification
-        function classifyMarketState(prices) {
-            if (prices.length < 50) return null;
-            
-            const vol = calculateVolatility(prices, 20);
-            const globalAvg = avgVol || vol;
-            const trend = analyzeTrend(prices.slice(-30));
-            const roc = calculateRateOfChange(prices, 30);
-            
-            return {
-                volatility: vol > globalAvg ? 'HIGH' : 'LOW',
-                trend: trend,
-                momentum: Math.abs(roc) > 0.1 ? 'STRONG' : 'WEAK',
-                timestamp: Date.now(),
-                result: null
-            };
-        }
-
-        function getHistoricalWinRate(currentState) {
-            if (!currentState || marketStateHistory.length < 10) return null;
-            
-            const similarStates = marketStateHistory.filter(s => 
-                s.volatility === currentState.volatility &&
-                s.trend === currentState.trend &&
-                s.result !== null
-            );
-            
-            if (similarStates.length < 5) return null;
-            
-            const wins = similarStates.filter(s => s.result === 'WIN').length;
-            return (wins / similarStates.length) * 100;
-        }
-
         function generateSignal() {
             if (priceHistory.length < 10) {
                 document.getElementById('signalText').textContent = 'UNDECIDED';
@@ -1072,71 +962,83 @@
                 avgVol = calculateVolatility(priceHistory, 50);
             }
 
-            // ===== 9. SIMPLIFIED IMPROVED SCANNER =====
-            
-            // Step 1: Check if we have enough data
+            // ===== STAGE 1: DATA GATEKEEPER (ALWAYS ON) =====
+            // This is mathematically required to run the other functions.
             if (priceHistory.length < 100) {
                 addLog("Collecting data... Need 100+ ticks for accurate analysis", "info");
                 setUndecidedSignal();
                 return;
             }
             
-            // Step 3: Multi-timeframe alignment (1m, 5m, 15m)
-            const shortTrend = analyzeTrend(priceHistory.slice(-6));    // ~1 min (6 ticks)
-            const mediumTrend = analyzeTrend(priceHistory.slice(-30));  // ~5 min (30 ticks)
-            const longTrend = analyzeTrend(priceHistory.slice(-90));    // ~15 min (90 ticks)
-            
-            if (!(shortTrend === mediumTrend && mediumTrend === longTrend)) {
-                addLog(`Timeframes not aligned: 1m=${shortTrend}, 5m=${mediumTrend}, 15m=${longTrend}`, "info");
-                setUndecidedSignal();
-                return;
-            }
-            
-            if (shortTrend === 'NONE') {
-                addLog("No clear trend detected across timeframes", "info");
-                setUndecidedSignal();
-                return;
-            }
-            
-            // Step 4: Check directional consistency
+            // ===== PRE-CALCULATE INDICATORS (Always needed) =====
+            const shortTrend = analyzeTrend(priceHistory.slice(-6));    // ~1 min
+            const mediumTrend = analyzeTrend(priceHistory.slice(-30));  // ~5 min
+            const longTrend = analyzeTrend(priceHistory.slice(-90));    // ~15 min
             const consistency = calculateDirectionalConsistency(priceHistory, 40);
-            if (consistency.consistency < 65) {
-                addLog(`Low directional consistency: ${consistency.consistency.toFixed(0)}% (need 65%+)`, "warning");
-                setUndecidedSignal();
-                return;
-            }
-            
-            // Step 5: Check rate of change (momentum)
             const roc = calculateRateOfChange(priceHistory, 30);
-            if (Math.abs(roc) < 0.05) {
-                addLog(`Insufficient momentum: ${roc.toFixed(3)}%/min (need 0.05%+)`, "warning");
-                setUndecidedSignal();
-                return;
+            const maDiv = calculateMADivergence(priceHistory);
+            
+            // ===== STAGE 2: MULTI-TIMEFRAME CHECK (TOGGLEABLE) =====
+            if (document.getElementById('filterTimeframe').checked) {
+                if (!(shortTrend === mediumTrend && mediumTrend === longTrend)) {
+                    addLog(`Timeframe Filter: Not aligned (1m=${shortTrend}, 5m=${mediumTrend})`, "info");
+                    setUndecidedSignal();
+                    return;
+                }
+                if (shortTrend === 'NONE') {
+                    addLog("Timeframe Filter: No clear trend detected", "info");
+                    setUndecidedSignal();
+                    return;
+                }
+            } else {
+                // If filter OFF, we still need a base direction, use Short Trend
+                if (shortTrend === 'NONE') {
+                     setUndecidedSignal();
+                     return;
+                }
             }
             
-            // Step 6: Check volatility breakout
+            // ===== STAGE 3: CONSISTENCY CHECK (TOGGLEABLE) =====
+            if (document.getElementById('filterConsistency').checked) {
+                if (consistency.consistency < 65) {
+                    addLog(`Consistency Filter: ${consistency.consistency.toFixed(0)}% is too low (<65%)`, "warning");
+                    setUndecidedSignal();
+                    return;
+                }
+            }
+            
+            // ===== STAGE 4: MOMENTUM CHECK (TOGGLEABLE) =====
+            if (document.getElementById('filterMomentum').checked) {
+                if (Math.abs(roc) < 0.05) {
+                    addLog(`Momentum Filter: ${roc.toFixed(3)}%/min is too slow`, "warning");
+                    setUndecidedSignal();
+                    return;
+                }
+            }
+            
+            // Volatility Breakout (Always logging, but not filtering unless added later)
             const breakout = detectVolatilityBreakout(priceHistory);
             if (breakout.breakout) {
                 addLog(`🔥 VOLATILITY BREAKOUT DETECTED: ${breakout.direction}`, "success");
             }
             
-            // Step 7: Moving Average Divergence check
-            const maDiv = calculateMADivergence(priceHistory);
-            if (maDiv && maDiv.direction !== 'NONE') {
-                if (maDiv.direction !== shortTrend) {
-                    addLog(`MA divergence conflict: MAs suggest ${maDiv.direction} but trend is ${shortTrend}`, "warning");
-                    setUndecidedSignal();
-                    return;
+            // ===== STAGE 5: MA CONFLICT/CONFIRMATION (TOGGLEABLE) =====
+            if (document.getElementById('filterMAConflict').checked) {
+                if (maDiv && maDiv.direction !== 'NONE') {
+                    if (maDiv.direction !== shortTrend) {
+                        addLog(`MA Conflict Filter: MAs say ${maDiv.direction} but Trend is ${shortTrend}`, "warning");
+                        setUndecidedSignal();
+                        return;
+                    }
+                    if (maDiv.strength < 0.3) {
+                        addLog(`MA Strength Filter: Divergence ${maDiv.strength.toFixed(2)}% too weak`, "warning");
+                        setUndecidedSignal();
+                        return;
+                    }
                 }
-                if (maDiv.strength < 0.3) {
-                    addLog(`Weak MA divergence: ${maDiv.strength.toFixed(2)}% (need 0.3%+)`, "warning");
-                    setUndecidedSignal();
-                    return;
-                }
-                addLog(`MA confirmation: ${maDiv.direction} with ${maDiv.strength.toFixed(2)}% divergence`, "success");
             }
             
-            // Step 8: Compare with previous scan
+            // ===== STAGE 6: TREND STABILITY / CONTINUITY (TOGGLEABLE) =====
             const currentPrice = priceHistory[priceHistory.length - 1];
             const currentSnapshot = {
                 price: currentPrice,
@@ -1145,104 +1047,21 @@
                 timestamp: Date.now()
             };
             
-            if (lastScanData) {
-                const priceChange = ((currentPrice - lastScanData.price) / lastScanData.price) * 100;
-                const trendContinuing = currentSnapshot.trend === lastScanData.trend;
-                const momentumIncreasing = Math.abs(currentSnapshot.momentum) > Math.abs(lastScanData.momentum);
-                
-                if (!trendContinuing) {
-                    addLog(`⚠️ Trend reversal detected since last scan: ${lastScanData.trend} → ${currentSnapshot.trend}`, "warning");
-                    lastScanData = currentSnapshot;
-                    setUndecidedSignal();
-                    return;
+            if (document.getElementById('filterTrendStability').checked) {
+                if (lastScanData) {
+                    const trendContinuing = currentSnapshot.trend === lastScanData.trend;
+                    if (!trendContinuing) {
+                        addLog(`Stability Filter: Trend flipped since last scan. Unstable.`, "warning");
+                        lastScanData = currentSnapshot;
+                        setUndecidedSignal();
+                        return;
+                    }
                 }
-                
-                addLog(`Trend continuing: ${shortTrend}, price change: ${priceChange.toFixed(2)}%`, "info");
             }
             
             lastScanData = currentSnapshot;
-            
-            // Step 9: Historical win rate check
-            const currentState = classifyMarketState(priceHistory);
-            const winRate = getHistoricalWinRate(currentState);
-            
-            if (winRate !== null && winRate < 40) {
-                addLog(`⚠️ Low historical win rate (${winRate.toFixed(0)}%) in similar market conditions`, "warning");
-                setUndecidedSignal();
-                return;
-            }
-            
-            if (winRate !== null) {
-                addLog(`Historical win rate in similar conditions: ${winRate.toFixed(0)}%`, "info");
-            }
-            
-            // Store current state for future analysis
-            if (currentState) {
-                marketStateHistory.push(currentState);
-                if (marketStateHistory.length > 100) marketStateHistory.shift();
-            }
 
-            // ===== APPLY ORIGINAL FILTERS =====
-            let isSignalValid = true;
-
-            // ADX FILTER
-            if (document.getElementById('filterADX').checked) {
-                const adxValue = calculateADX(priceHistory, 14);
-                if (adxValue < 25) {
-                    addLog(`ADX Filter: ${adxValue.toFixed(1)} < 25 (weak trend)`, "warning");
-                    isSignalValid = false;
-                }
-            }
-
-            // ATR RANGE FILTER
-            if (isSignalValid && document.getElementById('filterATR').checked) {
-                const baselineATR = calculateAverageRange(priceHistory, 50);
-                const currentATR = calculateAverageRange(priceHistory, 5);
-                const minATR = baselineATR * 0.5;
-                const maxATR = baselineATR * 2.0;
-                if (currentATR < minATR || currentATR > maxATR) {
-                    addLog(`ATR Filter: Range out of bounds (${currentATR.toFixed(5)})`, "warning");
-                    isSignalValid = false;
-                }
-            }
-
-            // RSI FILTER
-            if (isSignalValid && document.getElementById('filterRSI').checked) {
-                const rsi = calculateRSI(priceHistory);
-                if (shortTrend === 'BUY' && rsi < 55) {
-                    addLog(`RSI Filter: ${rsi.toFixed(1)} too low for BUY signal`, "warning");
-                    isSignalValid = false;
-                }
-                if (shortTrend === 'SELL' && rsi > 45) {
-                    addLog(`RSI Filter: ${rsi.toFixed(1)} too high for SELL signal`, "warning");
-                    isSignalValid = false;
-                }
-            }
-
-            // EMA CROSSOVER FILTER
-            if (isSignalValid && document.getElementById('filterEMA').checked) {
-                const emaFast = calculateEMA(priceHistory, 5);
-                const emaSlow = calculateEMA(priceHistory, 10);
-                if (emaFast && emaSlow) {
-                    if (shortTrend === 'BUY' && emaFast <= emaSlow) {
-                        addLog(`EMA Filter: Fast EMA not above Slow EMA for BUY`, "warning");
-                        isSignalValid = false;
-                    }
-                    if (shortTrend === 'SELL' && emaFast >= emaSlow) {
-                        addLog(`EMA Filter: Fast EMA not below Slow EMA for SELL`, "warning");
-                        isSignalValid = false;
-                    }
-                } else {
-                    addLog(`EMA Filter: Insufficient data`, "warning");
-                    isSignalValid = false;
-                }
-            }
-
-            // ===== FINAL DECISION =====
-            if (!isSignalValid) {
-                setUndecidedSignal();
-                return;
-            }
+            // (INDICATOR FILTERS REMOVED HERE)
 
             // ALL CONDITIONS MET - GENERATE SIGNAL
             const signal = shortTrend;
@@ -1250,12 +1069,12 @@
             if (signal === 'BUY') {
                 document.getElementById('signalText').textContent = '🚀 BUY SIGNAL';
                 document.getElementById('signalText').className = 'signal-text signal-buy';
-                addLog(`✅ STRONG BUY SIGNAL: Timeframes aligned (1m/5m/15m), ${consistency.consistency.toFixed(0)}% consistency, ${roc.toFixed(2)}%/min momentum`, "success");
+                addLog(`✅ BUY SIGNAL CONFIRMED`, "success");
                 if (tradeMode === 'auto') placeTrade('CALL');
             } else if (signal === 'SELL') {
                 document.getElementById('signalText').textContent = '📉 SELL SIGNAL';
                 document.getElementById('signalText').className = 'signal-text signal-sell';
-                addLog(`✅ STRONG SELL SIGNAL: Timeframes aligned (1m/5m/15m), ${consistency.consistency.toFixed(0)}% consistency, ${roc.toFixed(2)}%/min momentum`, "success");
+                addLog(`✅ SELL SIGNAL CONFIRMED`, "success");
                 if (tradeMode === 'auto') placeTrade('PUT');
             }
             
