@@ -13,7 +13,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             min-height: 100vh;
             padding: 10px;
         }
@@ -21,14 +21,15 @@
         .container {
             max-width: 1400px;
             margin: 0 auto;
-            background: white;
+            background: #0f1419;
             border-radius: 15px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
             overflow: hidden;
+            border: 1px solid #1f2937;
         }
 
         .header {
-            background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+            background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
             color: white;
             padding: 20px;
             display: flex;
@@ -36,6 +37,7 @@
             align-items: center;
             flex-wrap: wrap;
             gap: 10px;
+            border-bottom: 2px solid #374151;
         }
 
         .header h1 {
@@ -56,14 +58,15 @@
             align-items: center;
             gap: 8px;
             padding: 8px 15px;
-            background: rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
             border-radius: 20px;
             font-size: 14px;
             transition: all 0.3s;
+            border: 1px solid #374151;
         }
 
         .connection-status.reconnecting {
-            background: rgba(255, 165, 0, 0.2);
+            background: rgba(255, 165, 0, 0.1);
             color: #fbbf24;
             border: 1px solid #fbbf24;
         }
@@ -99,17 +102,17 @@
         }
 
         .login-card {
-            background: #f7fafc;
+            background: #1a1f2e;
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border: 1px solid #2d3748;
         }
 
         .login-card h2 {
             margin-bottom: 15px;
-            color: #2d3748;
+            color: #e2e8f0;
             font-size: 18px;
             display: flex;
             align-items: center;
@@ -130,7 +133,7 @@
         .input-group label {
             display: block;
             margin-bottom: 8px;
-            color: #4a5568;
+            color: #cbd5e0;
             font-weight: 600;
             font-size: 14px;
         }
@@ -138,10 +141,12 @@
         .input-group input {
             width: 100%;
             padding: 12px;
-            border: 2px solid #e2e8f0;
+            border: 2px solid #2d3748;
             border-radius: 8px;
             font-size: 14px;
             transition: border-color 0.3s;
+            background: #0f1419;
+            color: #e2e8f0;
         }
 
         .input-group input:focus {
@@ -164,6 +169,7 @@
             margin: 0;
             cursor: pointer;
             font-size: 14px;
+            color: #cbd5e0;
         }
 
         /* Toggle Switch Styling */
@@ -173,15 +179,15 @@
             justify-content: space-between;
             margin-bottom: 10px;
             padding: 10px;
-            background: white;
+            background: #0f1419;
             border-radius: 8px;
-            border: 1px solid #e2e8f0;
+            border: 1px solid #2d3748;
         }
 
         .toggle-label {
             font-size: 14px;
             font-weight: 600;
-            color: #4a5568;
+            color: #cbd5e0;
         }
 
         .switch {
@@ -204,7 +210,7 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: #ccc;
+            background-color: #4a5568;
             transition: .4s;
             border-radius: 20px;
         }
@@ -274,7 +280,7 @@
         }
 
         .btn-secondary {
-            background: #6b7280;
+            background: #4a5568;
             color: white;
         }
 
@@ -329,16 +335,17 @@
         }
 
         .card {
-            background: #f7fafc;
+            background: #1a1f2e;
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             height: 100%;
+            border: 1px solid #2d3748;
         }
 
         .card h3 {
             margin-bottom: 15px;
-            color: #2d3748;
+            color: #e2e8f0;
             font-size: 18px;
             border-bottom: 2px solid #667eea;
             padding-bottom: 10px;
@@ -351,7 +358,7 @@
         .form-group label {
             display: block;
             margin-bottom: 5px;
-            color: #4a5568;
+            color: #cbd5e0;
             font-weight: 600;
             font-size: 14px;
         }
@@ -360,9 +367,11 @@
         .form-group input {
             width: 100%;
             padding: 10px;
-            border: 2px solid #e2e8f0;
+            border: 2px solid #2d3748;
             border-radius: 6px;
             font-size: 14px;
+            background: #0f1419;
+            color: #e2e8f0;
         }
 
         .form-group select:focus,
@@ -389,27 +398,30 @@
             grid-template-columns: repeat(4, 1fr);
             gap: 10px;
             margin-top: 15px;
+            margin-bottom: 20px;
         }
 
         .stat-card {
-            background: white;
+            background: #1a1f2e;
             padding: 15px;
             border-radius: 8px;
             text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            border-left: 4px solid #667eea;
+            border: 1px solid #2d3748;
             border-left: 4px solid #667eea;
         }
 
         .stat-label {
             font-size: 12px;
-            color: #6b7280;
+            color: #9ca3af;
             margin-bottom: 5px;
         }
 
         .stat-value {
             font-size: 24px;
             font-weight: bold;
-            color: #2d3748;
+            color: #e2e8f0;
         }
 
         .stat-card.profit {
@@ -421,17 +433,17 @@
         }
 
         .trade-signal-card {
-            background: white;
+            background: #1a1f2e;
             border-radius: 10px;
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
             border: 3px solid #667eea;
         }
 
         .trade-signal-card h3 {
             margin-bottom: 15px;
-            color: #2d3748;
+            color: #e2e8f0;
             font-size: 18px;
         }
 
@@ -442,15 +454,16 @@
         }
 
         .signal-item {
-            background: #f7fafc;
+            background: #0f1419;
             padding: 15px;
             border-radius: 8px;
             text-align: center;
+            border: 1px solid #2d3748;
         }
 
         .signal-label {
             font-size: 14px;
-            color: #6b7280;
+            color: #9ca3af;
             margin-bottom: 8px;
         }
 
@@ -463,46 +476,49 @@
         .signal-status {
             margin-top: 15px;
             padding: 15px;
-            background: #f0fdf4;
+            background: rgba(16, 185, 129, 0.1);
             border-radius: 8px;
             border-left: 4px solid #10b981;
         }
 
         .signal-status.no-signal {
-            background: #fef3c7;
+            background: rgba(245, 158, 11, 0.1);
             border-left-color: #f59e0b;
         }
 
         .signal-status.buy-signal {
-            background: #dcfce7;
+            background: rgba(16, 185, 129, 0.1);
             border-left-color: #10b981;
         }
 
         .signal-status.sell-signal {
-            background: #fee2e2;
+            background: rgba(239, 68, 68, 0.1);
             border-left-color: #ef4444;
         }
 
         .indicator-status {
-            background: white;
+            background: #1a1f2e;
             padding: 15px;
             border-radius: 10px;
             margin-bottom: 20px;
+            border: 1px solid #2d3748;
         }
 
         .indicator-status h4 {
             margin-bottom: 10px;
-            color: #2d3748;
+            color: #e2e8f0;
         }
 
         .indicator-item {
             display: flex;
             justify-content: space-between;
             padding: 8px;
-            background: #f7fafc;
+            background: #0f1419;
             margin-bottom: 5px;
             border-radius: 5px;
             font-size: 14px;
+            color: #cbd5e0;
+            border: 1px solid #2d3748;
         }
 
         .indicator-value {
@@ -511,10 +527,11 @@
         }
 
         .trade-history {
-            background: white;
+            background: #1a1f2e;
             border-radius: 10px;
             padding: 20px;
             margin-bottom: 20px;
+            border: 1px solid #2d3748;
         }
 
         .trade-history-header {
@@ -528,7 +545,7 @@
 
         .trade-history h3 {
             margin-bottom: 0;
-            color: #2d3748;
+            color: #e2e8f0;
         }
 
         .history-table {
@@ -543,7 +560,7 @@
         }
 
         table th {
-            background: #2d3748;
+            background: #111827;
             color: white;
             padding: 12px;
             text-align: left;
@@ -552,11 +569,12 @@
 
         table td {
             padding: 12px;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid #2d3748;
+            color: #cbd5e0;
         }
 
         table tr:hover {
-            background: #f7fafc;
+            background: #0f1419;
         }
 
         .result-win {
@@ -570,7 +588,7 @@
         }
 
         .log-panel {
-            background: #1a202c;
+            background: #0a0e14;
             color: #e2e8f0;
             padding: 15px;
             border-radius: 10px;
@@ -578,6 +596,7 @@
             overflow-y: auto;
             font-family: 'Courier New', monospace;
             font-size: 12px;
+            border: 1px solid #2d3748;
         }
 
         .log-entry {
@@ -614,7 +633,7 @@
 
         .scroll-container::-webkit-scrollbar-track,
         .log-panel::-webkit-scrollbar-track {
-            background: #f1f1f1;
+            background: #1a1f2e;
             border-radius: 10px;
         }
 
@@ -734,7 +753,7 @@
                             <span>🚀</span> Connect
                         </button>
                     </div>
-                    <div style="margin-top: 15px; font-size: 13px; color: #718096;">
+                    <div style="margin-top: 15px; font-size: 13px; color: #9ca3af;">
                         <a href="https://app.deriv.com/account/api-token" target="_blank" style="color: #667eea; text-decoration: none;">Get Token →</a>
                     </div>
                 </div>
@@ -797,7 +816,7 @@
 
                 <div class="card">
                     <h3>🛡️ Strategy Filters</h3>
-                    <div style="margin-bottom: 10px; font-size: 13px; color: #666;">
+                    <div style="margin-bottom: 10px; font-size: 13px; color: #9ca3af;">
                         Enable these to filter trade signals.
                     </div>
                     
@@ -808,7 +827,7 @@
                             <span class="slider"></span>
                         </label>
                     </div>
-                    <div style="font-size: 11px; color: #718096; margin-bottom: 15px;">
+                    <div style="font-size: 11px; color: #9ca3af; margin-bottom: 15px;">
                         Trades only near .00 or .50 levels (Strong Support/Resistance).
                     </div>
 
@@ -819,7 +838,7 @@
                             <span class="slider"></span>
                         </label>
                     </div>
-                    <div style="font-size: 11px; color: #718096;">
+                    <div style="font-size: 11px; color: #9ca3af;">
                         Trades only at recent Swing Highs (Sell) or Swing Lows (Buy).
                     </div>
                 </div>
@@ -834,29 +853,10 @@
                         <label>Take Profit ($)</label>
                         <input type="number" id="takeProfit" value="20" min="0" step="0.01">
                     </div>
-                    <div style="padding: 15px; background: #f0fdf4; border-radius: 8px; margin-top: 15px;">
-                        <div style="font-size: 12px; color: #166534; margin-bottom: 5px;">💡 Base Strategy</div>
-                        <div style="font-size: 11px; color: #15803d;">TSI + AO + EMA + ADX</div>
+                    <div style="padding: 15px; background: rgba(16, 185, 129, 0.1); border-radius: 8px; margin-top: 15px; border: 1px solid #2d3748;">
+                        <div style="font-size: 12px; color: #10b981; margin-bottom: 5px;">💡 Base Strategy</div>
+                        <div style="font-size: 11px; color: #6ee7b7;">TSI + AO + EMA + ADX</div>
                     </div>
-                </div>
-            </div>
-
-            <div class="stats-grid" id="statsGrid" style="display: none;">
-                <div class="stat-card">
-                    <div class="stat-label">Total Trades</div>
-                    <div class="stat-value" id="totalTrades">0</div>
-                </div>
-                <div class="stat-card profit">
-                    <div class="stat-label">Wins</div>
-                    <div class="stat-value" id="winCount">0</div>
-                </div>
-                <div class="stat-card loss">
-                    <div class="stat-label">Losses</div>
-                    <div class="stat-value" id="lossCount">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">P/L</div>
-                    <div class="stat-value" id="profitLoss">0.00</div>
                 </div>
             </div>
 
@@ -915,6 +915,25 @@
                 <button class="btn btn-secondary" id="stopAutoTradeBtn" style="display: none;">
                     <span>⏸️</span> Stop Auto Trade
                 </button>
+            </div>
+
+            <div class="stats-grid" id="statsGrid" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-label">Total Trades</div>
+                    <div class="stat-value" id="totalTrades">0</div>
+                </div>
+                <div class="stat-card profit">
+                    <div class="stat-label">Wins</div>
+                    <div class="stat-value" id="winCount">0</div>
+                </div>
+                <div class="stat-card loss">
+                    <div class="stat-label">Losses</div>
+                    <div class="stat-value" id="lossCount">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">P/L</div>
+                    <div class="stat-value" id="profitLoss">0.00</div>
+                </div>
             </div>
 
             <div class="trade-history" id="tradeHistory">
@@ -1497,11 +1516,19 @@
         }
 
         function clearTradeHistory() {
-            if (confirm('Are you sure you want to clear the entire trade history?')) {
+            if (confirm('Are you sure you want to clear the entire trade history and reset statistics?')) {
                 tradeHistory = [];
                 localStorage.setItem('benScalperTradeHistory', JSON.stringify([]));
+                
+                // Reset stats
+                stats.total = 0;
+                stats.wins = 0;
+                stats.losses = 0;
+                stats.profitLoss = 0;
+                
+                updateStatsDisplay();
                 updateTradeHistoryTable();
-                addLog('Trade history cleared.', 'info');
+                addLog('Trade history and statistics cleared.', 'info');
             }
         }
 
@@ -1634,5 +1661,4 @@
     </script>
 </body>
 </html>
-
-
+                    
