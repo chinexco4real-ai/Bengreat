@@ -910,31 +910,24 @@
                 <div class="form-group">
                     <label>Select Trading Strategy</label>
                     <select id="strategySelector">
-                        <option value="bensniper">Ben Sniper 1.0</option>
+                        <option value="bensniperentry">Ben Sniper Entry</option>
                         <option value="momentum">Strategy 2: Momentum Oscillator Cross</option>
                         <option value="vwap">Strategy 3: VWAP Bounce Strategy</option>
                         <option value="triangle">Strategy 4: Symmetrical Triangle Break</option>
-                        <option value="acceleration">Strategy 5: Acceleration Break Sniper</option>
-                        <option value="bollinger">Strategy 6: Bollinger Scalp</option>
-                        <option value="candlestick">Strategy 7: Candlestick Pattern Precision</option>
+                        <option value="bollinger">Strategy 5: Bollinger Scalp</option>
                         <option value="multitime">Multi-Time Con</option>
-                        <option value="bensniper2">Ben Sniper 2.0</option>
                     </select>
                 </div>
                 <div class="strategy-description" id="strategyDescription">
-                    <strong>Ben Sniper 1.0</strong>
-                    <strong>RISE ENTRY:</strong>
-                    • 3 consecutive strong red candles<br>
-                    • Candles push into recent low<br>
-                    • Candle sizes shrinking<br>
-                    • 4th candle turns green and breaks previous open<br>
-                    • Enter Rise after 2–3 confirming ticks<br>
-                    <strong>FALL ENTRY:</strong>
-                    • 3 consecutive strong green candles<br>
-                    • Candles push into recent high<br>
-                    • Candle sizes shrinking<br>
-                    • 4th candle turns red and breaks previous open<br>
-                    • Enter Fall after 2–3 confirming ticks
+                    <strong>Ben Sniper Entry</strong>
+                    <strong>RISE ENTRY:</strong><br>
+                    • Wait for 3 consecutive red (down) candles on 30-second chart<br>
+                    • RSI is below 40<br>
+                    • On the 4th candle, if it opens and shows bullish momentum (green), enter Rise immediately<br>
+                    <strong>FALL ENTRY:</strong><br>
+                    • Wait for 3 consecutive green (up) candles on 30-second chart<br>
+                    • RSI is above 60<br>
+                    • On the 4th candle, if it opens and shows bearish momentum (red), enter Fall immediately
                 </div>
             </div>
 
@@ -1063,7 +1056,7 @@
                     </div>
                     <div style="padding: 15px; background: rgba(16, 185, 129, 0.1); border-radius: 8px; margin-top: 15px; border: 1px solid #2d3748;">
                         <div style="font-size: 12px; color: #10b981; margin-bottom: 5px;">💡 Active Strategy</div>
-                        <div style="font-size: 11px; color: #6ee7b7;" id="activeStrategyDisplay">Ben Sniper 1.0</div>
+                        <div style="font-size: 11px; color: #6ee7b7;" id="activeStrategyDisplay">Ben Sniper Entry</div>
                     </div>
                 </div>
             </div>
@@ -1181,10 +1174,9 @@
         let candle30SecHistory = [];
         let candle1MinHistory = [];
         let candle5MinHistory = [];
-        let candle15MinHistory = [];
         let currentMarketSymbol = '';
         let currentPrice = 0;
-        let currentStrategy = 'bensniper';
+        let currentStrategy = 'bensniperentry';
         let lastExecutedTradeType = null;
         let nextTradeType = 'BUY';
         let lastSetupDetectedTime = 0;
@@ -1231,26 +1223,17 @@
             bollingerLower: 0,
             bollingerMiddle: 0,
             rsi: 0,
-            ema50_5min: 0,
-            ema50_15min: 0
+            ema50_5min: 0
         };
 
         // Candle data for different timeframes
         let currentCandle30Sec = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
         let currentCandle1Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
         let currentCandle5Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
-        let currentCandle15Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
         
         const CANDLE_30SEC_MS = 30000;
         const CANDLE_1MIN_MS = 60000;
         const CANDLE_5MIN_MS = 300000;
-        const CANDLE_15MIN_MS = 900000;
-
-        // Candle size tracking for acceleration strategy
-        let candleSizeHistory = [];
-        let confirmingTicks = 0;
-        let waitingForConfirmation = false;
-        let pendingSignal = null;
 
         // Initialize market toggles
         function initializeMarketToggles() {
@@ -1532,19 +1515,15 @@
 
         function updateStrategyDescription() {
             const descriptions = {
-                bensniper: `<strong>Ben Sniper 1.0</strong>
+                bensniperentry: `<strong>Ben Sniper Entry</strong>
                     <strong>RISE ENTRY:</strong><br>
-                    • 3 consecutive strong red candles<br>
-                    • Candles push into recent low<br>
-                    • Candle sizes shrinking<br>
-                    • 4th candle turns green and breaks previous open<br>
-                    • Enter Rise after 2–3 confirming ticks<br>
+                    • Wait for 3 consecutive red (down) candles on 30-second chart<br>
+                    • RSI is below 40<br>
+                    • On the 4th candle, if it opens and shows bullish momentum (green), enter Rise immediately<br>
                     <strong>FALL ENTRY:</strong><br>
-                    • 3 consecutive strong green candles<br>
-                    • Candles push into recent high<br>
-                    • Candle sizes shrinking<br>
-                    • 4th candle turns red and breaks previous open<br>
-                    • Enter Fall after 2–3 confirming ticks`,
+                    • Wait for 3 consecutive green (up) candles on 30-second chart<br>
+                    • RSI is above 60<br>
+                    • On the 4th candle, if it opens and shows bearish momentum (red), enter Fall immediately`,
                 momentum: `<strong>Strategy 2: Momentum Oscillator Cross</strong>
                     Chart: 30-second candles<br>
                     <strong>Indicator:</strong> Momentum Oscillator (10 period)<br>
@@ -1563,24 +1542,11 @@
                     <strong>RISE:</strong> Price breaks above upper trendline with momentum<br>
                     <strong>FALL:</strong> Price breaks below lower trendline with momentum<br>
                     Needs at least 4 touches (2 on each line)`,
-                acceleration: `<strong>Strategy 5: Acceleration Break Sniper</strong>
-                    Chart: 30-second candles<br>
-                    <strong>Pattern:</strong> Small → Medium → Large candle = acceleration<br>
-                    <strong>RISE:</strong> After downward acceleration breaks, first small green candle appears<br>
-                    <strong>FALL:</strong> After upward acceleration breaks, first small red candle appears<br>
-                    Catch the exact moment momentum dies!`,
-                bollinger: `<strong>Strategy 6: Bollinger Scalp</strong>
+                bollinger: `<strong>Strategy 5: Bollinger Scalp</strong>
                     Best for: Range Market<br>
                     <strong>Indicator:</strong> Bollinger Bands (20, 2.5)<br>
                     <strong>RISE:</strong> Price touches Lower Band<br>
                     <strong>FALL:</strong> Price touches Upper Band`,
-                candlestick: `<strong>Strategy 7: Candlestick Pattern Precision</strong>
-                    Chart: 1-minute candles<br>
-                    <strong>High-Probability Patterns:</strong><br>
-                    - Hammer/Inverted Hammer at support → Rise<br>
-                    - Shooting Star at resistance → Fall<br>
-                    - Bullish/Bearish Engulfing at key levels<br>
-                    <strong>Entry:</strong> Open of candle immediately following pattern`,
                 multitime: `<strong>Multi-Time Con</strong>
                     <strong>RISE Trade:</strong><br>
                     • 5-min = HH/HL + EMA 50 up<br>
@@ -1599,22 +1565,7 @@
                     <strong>ENTER FALL when:</strong><br>
                     • Price breaks below rejection candle low<br>
                     • Within 1–3 ticks<br>
-                    • No bullish spike`,
-                bensniper2: `<strong>Ben Sniper 2.0</strong>
-                    <strong>RISE Entry (After 3 Red Candles):</strong><br>
-                    • 4th candle opens green with higher volume than previous 3<br>
-                    • Candle body is 60-70% of total range<br>
-                    • Price moves up 0.3-0.5% in first 10-15 seconds<br>
-                    • RSI on 1-min chart is below 40<br>
-                    • 5-min/15-min trend is bullish<br>
-                    • 3 red candles moved down at least 0.5-1% combined<br>
-                    <strong>FALL Entry (After 3 Green Candles):</strong><br>
-                    • 4th candle opens red with higher volume than previous 3<br>
-                    • Candle body is 60-70% of total range<br>
-                    • Price moves down 0.3-0.5% in first 10-15 seconds<br>
-                    • RSI on 1-min chart is above 60<br>
-                    • 5-min/15-min trend is bearish<br>
-                    • 3 green candles moved up at least 0.5-1% combined`
+                    • No bullish spike`
             };
             
             document.getElementById('strategyDescription').innerHTML = descriptions[currentStrategy];
@@ -1630,22 +1581,15 @@
                 bollingerUpper: 0,
                 bollingerLower: 0,
                 bollingerMiddle: 0,
-                rsi:0,
-                ema50_5min: 0,
-                ema50_15min: 0
+                rsi: 0,
+                ema50_5min: 0
             };
             candle30SecHistory = [];
             candle1MinHistory = [];
             candle5MinHistory = [];
-            candle15MinHistory = [];
-            candleSizeHistory = [];
             currentCandle30Sec = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
             currentCandle1Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
             currentCandle5Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
-            currentCandle15Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
-            confirmingTicks = 0;
-            waitingForConfirmation = false;
-            pendingSignal = null;
             currentSetupId = null;
             lastSetupDetectedTime = 0;
             addLog('Strategy indicators reset', 'info');
@@ -1705,7 +1649,7 @@
             document.getElementById('sellBtn').disabled = false;
             document.getElementById('autoTradeBtn').disabled = false;
             document.getElementById('startCyclerBtn').disabled = false;
-            addLog('Trade buttons enabled', 'info');
+            addLog('Tradebuttons enabled', 'info');
         }
 
         function disableTradeButtons() {
@@ -1946,20 +1890,23 @@
         }
 
         // --- Strategy Analysis Functions ---
-        function analyzeBenSniperStrategy() {
-            if (candle30SecHistory.length < 4) {
-                return { signal: null, message: `Collecting 30-sec candles... ${candle30SecHistory.length}/4 needed` };
+        function analyzeBenSniperEntryStrategy() {
+            if (candle30SecHistory.length < 4 || candle1MinHistory.length < 15) {
+                return { signal: null, message: `Collecting candles... 30s: ${candle30SecHistory.length}/4, 1m: ${candle1MinHistory.length}/15 needed` };
             }
 
             const recent = candle30SecHistory.slice(-4);
-            const sizes = recent.map(c => Math.abs(c.close - c.open));
+            const closes1Min = candle1MinHistory.map(c => c.close);
+            const rsi = calculateRSI(closes1Min, 14);
+            
+            strategyIndicators.rsi = rsi;
             
             updateIndicatorDisplay({
                 'Candle 1': recent[0].close > recent[0].open ? '🟢 Green' : '🔴 Red',
                 'Candle 2': recent[1].close > recent[1].open ? '🟢 Green' : '🔴 Red',
                 'Candle 3': recent[2].close > recent[2].open ? '🟢 Green' : '🔴 Red',
                 'Candle 4': recent[3].close > recent[3].open ? '🟢 Green' : '🔴 Red',
-                'Size Shrinking': sizes[2] < sizes[1] && sizes[1] < sizes[0] ? 'Yes' : 'No',
+                'RSI (1-min)': rsi.toFixed(2),
                 '30-Sec Candles': candle30SecHistory.length
             });
 
@@ -1968,130 +1915,19 @@
             const c3 = recent[2];
             const c4 = recent[3];
             
-            const recentLow = Math.min(c1.low, c2.low, c3.low);
-            const recentHigh = Math.max(c1.high, c2.high, c3.high);
-            
-            // RISE: 3 red + 4th green + breaking previous open + shrinking sizes
+            // RISE: 3 red candles + RSI < 40 + 4th candle green
             if (c1.close < c1.open && c2.close < c2.open && c3.close < c3.open && 
-                c4.close > c4.open && c3.low <= recentLow && 
-                sizes[2] < sizes[1] && c4.open > c3.open) {
-                
-                if (waitingForConfirmation && pendingSignal === 'BUY') {
-                    confirmingTicks++;
-                    if (confirmingTicks >= 2) {
-                        waitingForConfirmation = false;
-                        confirmingTicks = 0;
-                        return { signal: 'BUY', message: '✅ RISE confirmed after 2-3 ticks' };
-                    }
-                    return { signal: null, message: `Confirming RISE... ${confirmingTicks}/3 ticks` };
-                } else {
-                    waitingForConfirmation = true;
-                    pendingSignal = 'BUY';
-                    confirmingTicks = 0;
-                    return { signal: null, message: 'RISE setup detected - awaiting confirmation...' };
-                }
+                rsi < 40 && c4.close > c4.open) {
+                return { signal: 'BUY', message: '✅ RISE: 3 red candles + RSI < 40 + 4th green!' };
             }
             
-            // FALL: 3 green + 4th red + breaking previous open + shrinking sizes
+            // FALL: 3 green candles + RSI > 60 + 4th candle red
             if (c1.close > c1.open && c2.close > c2.open && c3.close > c3.open && 
-                c4.close < c4.open && c3.high >= recentHigh && 
-                sizes[2] < sizes[1] && c4.open < c3.open) {
-                
-                if (waitingForConfirmation && pendingSignal === 'SELL') {
-                    confirmingTicks++;
-                    if (confirmingTicks >= 2) {
-                        waitingForConfirmation = false;
-                        confirmingTicks = 0;
-                        return { signal: 'SELL', message: '✅ FALL confirmed after 2-3 ticks' };
-                    }
-                    return { signal: null, message: `Confirming FALL... ${confirmingTicks}/3 ticks` };
-                } else {
-                    waitingForConfirmation = true;
-                    pendingSignal = 'SELL';
-                    confirmingTicks = 0;
-                    return { signal: null, message: 'FALL setup detected - awaiting confirmation...' };
-                }
+                rsi > 60 && c4.close < c4.open) {
+                return { signal: 'SELL', message: '✅ FALL: 3 green candles + RSI > 60 + 4th red!' };
             }
 
-            waitingForConfirmation = false;
-            pendingSignal = null;
-            return { signal: null, message: 'Monitoring for 3-candle reversal pattern...' };
-        }
-
-        function analyzeBenSniper2Strategy() {
-            if (candle30SecHistory.length < 4 || candle1MinHistory.length < 2 || 
-                candle5MinHistory.length < 3 || candle15MinHistory.length < 3) {
-                return { signal: null, message: `Collecting candles... 30s:${candle30SecHistory.length}/4, 1m:${candle1MinHistory.length}/2, 5m:${candle5MinHistory.length}/3, 15m:${candle15MinHistory.length}/3` };
-            }
-
-            const recent30s = candle30SecHistory.slice(-4);
-            const c1 = recent30s[0];
-            const c2 = recent30s[1];
-            const c3 = recent30s[2];
-            const c4 = recent30s[3];
-            
-            // Calculate indicators
-            const closes1Min = candle1MinHistory.map(c => c.close);
-            const rsi = calculateRSI(closes1Min, 14);
-            
-            const closes5Min = candle5MinHistory.map(c => c.close);
-            const ema50_5min = calculateEMA(closes5Min, 50);
-            
-            const closes15Min = candle15MinHistory.map(c => c.close);
-            const ema50_15min = calculateEMA(closes15Min, 50);
-            
-            strategyIndicators.rsi = rsi;
-            strategyIndicators.ema50_5min = ema50_5min;
-            strategyIndicators.ema50_15min = ema50_15min;
-            
-            const is5MinBullish = closes5Min[closes5Min.length - 1] > ema50_5min;
-            const is15MinBullish = closes15Min[closes15Min.length - 1] > ema50_15min;
-            const is5MinBearish = closes5Min[closes5Min.length - 1] < ema50_5min;
-            const is15MinBearish = closes15Min[closes15Min.length - 1] < ema50_15min;
-            
-            const totalVolume = c1.volume + c2.volume + c3.volume;
-            const avgVolume = totalVolume / 3;
-            const hasHigherVolume = c4.volume > avgVolume;
-            
-            const bodySize = Math.abs(c4.close - c4.open);
-            const totalRange = c4.high - c4.low;
-            const bodyRatio = totalRange > 0 ? (bodySize / totalRange) * 100 : 0;
-            const has60_70Body = bodyRatio >= 60 && bodyRatio <= 75;
-            
-            const priceChange = Math.abs((c4.close - c4.open) / c4.open) * 100;
-            const hasPriceMove = priceChange >= 0.3 && priceChange <= 0.6;
-            
-            const totalMove = Math.abs(c3.close - c1.open) / c1.open * 100;
-            const hasSignificantMove = totalMove >= 0.5;
-            
-            updateIndicatorDisplay({
-                'RSI (1-min)': rsi.toFixed(2),
-                '5-min Trend': is5MinBullish ? 'Bullish' : is5MinBearish ? 'Bearish' : 'Neutral',
-                '15-min Trend': is15MinBullish ? 'Bullish' : is15MinBearish ? 'Bearish' : 'Neutral',
-                '4th Candle Volume': hasHigherVolume ? 'Higher ✓' : 'Lower ✗',
-                'Body Ratio': `${bodyRatio.toFixed(1)}%`,
-                'Price Move': `${priceChange.toFixed(2)}%`,
-                '3-Candle Move': `${totalMove.toFixed(2)}%`,
-                '30-Sec Candles': candle30SecHistory.length
-            });
-
-            // RISE Entry
-            if (c1.close < c1.open && c2.close < c2.open && c3.close < c3.open && 
-                c4.close > c4.open && hasHigherVolume && has60_70Body && 
-                hasPriceMove && rsi < 40 && (is5MinBullish || is15MinBullish) && 
-                hasSignificantMove) {
-                return { signal: 'BUY', message: 'Ben Sniper 2.0 RISE - All conditions met!' };
-            }
-
-            // FALL Entry
-            if (c1.close > c1.open && c2.close > c2.open && c3.close > c3.open && 
-                c4.close < c4.open && hasHigherVolume && has60_70Body && 
-                hasPriceMove && rsi > 60 && (is5MinBearish || is15MinBearish) && 
-                hasSignificantMove) {
-                return { signal: 'SELL', message: 'Ben Sniper 2.0 FALL - All conditions met!' };
-            }
-
-            return { signal: null, message: 'Ben Sniper 2.0 - Monitoring for advanced setup...' };
+            return { signal: null, message: 'Monitoring for Ben Sniper Entry setup...' };
         }
 
         function analyzeMomentumStrategy() {
@@ -2115,12 +1951,10 @@
                 '30-Sec Candles': candle30SecHistory.length
             });
 
-            // Cross above zero = RISE
             if (momentumPrev < 0 && momentum > 0) {
                 return { signal: 'BUY', message: 'Momentum crossed ABOVE zero - Bullish shift!' };
             }
 
-            // Cross below zero = FALL
             if (momentumPrev > 0 && momentum < 0) {
                 return { signal: 'SELL', message: 'Momentum crossed BELOW zero - Bearish shift!' };
             }
@@ -2151,7 +1985,6 @@
                 '1-Min Candles': candle1MinHistory.length
             });
 
-            // RISE: Price dropped 20+ ticks below VWAP and now bouncing back
             if (prevCandle.low < vwap - (20 * tickSize) && 
                 lastCandle.close > prevCandle.close && 
                 lastCandle.low > prevCandle.low) {
@@ -2161,7 +1994,6 @@
                 }
             }
 
-            // FALL: Price rallied 20+ ticks above VWAP and now rejecting
             if (prevCandle.high > vwap + (20 * tickSize) && 
                 lastCandle.close < prevCandle.close && 
                 lastCandle.high < prevCandle.high) {
@@ -2197,61 +2029,15 @@
                 return { signal: null, message: 'Triangle pattern not yet formed...' };
             }
 
-            // Breakout above upper trendline
             if (lastCandle.close > triangle.upper && lastCandle.close > lastCandle.open) {
                 return { signal: 'BUY', message: 'Bullish breakout above upper trendline!' };
             }
 
-            // Breakout below lower trendline
             if (lastCandle.close < triangle.lower && lastCandle.close < lastCandle.open) {
                 return { signal: 'SELL', message: 'Bearish breakout below lower trendline!' };
             }
 
             return { signal: null, message: 'Triangle forming - waiting for breakout...' };
-        }
-
-        function analyzeAccelerationStrategy() {
-            if (candle30SecHistory.length < 5) {
-                return { signal: null, message: `Collecting 30-sec candles... ${candle30SecHistory.length}/5 needed` };
-            }
-
-            const recent = candle30SecHistory.slice(-5);
-            const sizes = recent.map(c => Math.abs(c.close - c.open));
-            
-            candleSizeHistory = sizes;
-            
-            updateIndicatorDisplay({
-                'C1 Size': sizes[0].toFixed(5),
-                'C2 Size': sizes[1].toFixed(5),
-                'C3 Size': sizes[2].toFixed(5),
-                'C4 Size': sizes[3].toFixed(5),
-                'C5 Size': sizes[4].toFixed(5),
-                '30-Sec Candles': candle30SecHistory.length
-            });
-
-            const c1 = recent[0];
-            const c2 = recent[1];
-            const c3 = recent[2];
-            const c4 = recent[3];
-            const c5 = recent[4];
-            
-            const isAccelerationUp = sizes[0] < sizes[1] && sizes[1] < sizes[2] && 
-                                    c1.close < c1.open && c2.close < c2.open && c3.close < c3.open;
-            
-            const isAccelerationDown = sizes[0] < sizes[1] && sizes[1] < sizes[2] && 
-                                      c1.close > c1.open && c2.close > c2.open && c3.close > c3.open;
-            
-            // RISE: After downward acceleration, first small green candle
-            if (isAccelerationUp && sizes[3] < sizes[2] && c4.close > c4.open) {
-                return { signal: 'BUY', message: 'Downward acceleration exhausted - RISE!' };
-            }
-            
-            // FALL: After upward acceleration, first small red candle
-            if (isAccelerationDown && sizes[3] < sizes[2] && c4.close < c4.open) {
-                return { signal: 'SELL', message: 'Upward acceleration exhausted - FALL!' };
-            }
-
-            return { signal: null, message: 'Monitoring for acceleration break...' };
         }
 
         function analyzeBollingerStrategy() {
@@ -2284,55 +2070,6 @@
             return { signal: null, message: 'Waiting for price to touch bands...' };
         }
 
-        function analyzeCandlestickStrategy() {
-            if (candle1MinHistory.length < 10) {
-                return { signal: null, message: `Collecting 1-min candles... ${candle1MinHistory.length}/10 needed` };
-            }
-
-            const lastCandle = candle1MinHistory[candle1MinHistory.length - 1];
-            const prevCandle = candle1MinHistory[candle1MinHistory.length - 2];
-            
-            const bodySize = Math.abs(lastCandle.close - lastCandle.open);
-            const upperWick = lastCandle.high - Math.max(lastCandle.open, lastCandle.close);
-            const lowerWick = Math.min(lastCandle.open, lastCandle.close) - lastCandle.low;
-            
-            updateIndicatorDisplay({
-                'Last Candle': lastCandle.close > lastCandle.open ? 'Bullish' : 'Bearish',
-                'Body Size': bodySize.toFixed(5),
-                'Upper Wick': upperWick.toFixed(5),
-                'Lower Wick': lowerWick.toFixed(5),
-                '1-Min Candles': candle1MinHistory.length
-            });
-
-            // Hammer/Inverted Hammer
-            if (lowerWick > bodySize * 2 && bodySize > 0 && upperWick < bodySize) {
-                return { signal: 'BUY', message: 'Hammer pattern detected at support' };
-            }
-
-            // Shooting Star
-            if (upperWick > bodySize * 2 && bodySize > 0 && lowerWick < bodySize) {
-                return { signal: 'SELL', message: 'Shooting Star pattern detected at resistance' };
-            }
-
-            // Bullish Engulfing
-            if (prevCandle.close < prevCandle.open && 
-                lastCandle.close > lastCandle.open &&
-                lastCandle.close > prevCandle.open &&
-                lastCandle.open < prevCandle.close) {
-                return { signal: 'BUY', message: 'Bullish Engulfing pattern detected' };
-            }
-
-            // Bearish Engulfing
-            if (prevCandle.close > prevCandle.open && 
-                lastCandle.close < lastCandle.open &&
-                lastCandle.close < prevCandle.open &&
-                lastCandle.open > prevCandle.close) {
-                return { signal: 'SELL', message: 'Bearish Engulfing pattern detected' };
-            }
-
-            return { signal: null, message: 'Monitoring for candlestick patterns...' };
-        }
-
         function analyzeMultiTimeStrategy() {
             if (candle5MinHistory.length < 5 || candle1MinHistory.length < 10) {
                 return { signal: null, message: `Collecting candles... 5-min: ${candle5MinHistory.length}/5, 1-min: ${candle1MinHistory.length}/10` };
@@ -2353,7 +2090,6 @@
             const last1Min = candle1MinHistory[candle1MinHistory.length - 1];
             const prev1Min = candle1MinHistory[candle1MinHistory.length - 2];
             
-            // Check for rejection candle
             const isBullishRejection = prev1Min.close < prev1Min.open && 
                                       last1Min.close > last1Min.open &&
                                       last1Min.low > prev1Min.low;
@@ -2371,7 +2107,6 @@
                 '1-Min Candles': candle1MinHistory.length
             });
 
-            // RISE: 5-min uptrend + 1-min bullish rejection + price breaks above rejection high
             if (is5MinUptrend && isBullishRejection) {
                 const breakoutHigh = prev1Min.high;
                 const ticksAbove = Math.abs(currentPrice - breakoutHigh) / 0.001;
@@ -2382,7 +2117,6 @@
                 return { signal: null, message: 'Waiting for breakout above rejection high...' };
             }
 
-            // FALL: 5-min downtrend + 1-min bearish rejection + price breaks below rejection low
             if (is5MinDowntrend && isBearishRejection) {
                 const breakoutLow = prev1Min.low;
                 const ticksBelow = Math.abs(currentPrice - breakoutLow) / 0.001;
@@ -2415,11 +2149,8 @@
             let result = { signal: null, message: 'Waiting for data...' };
 
             switch (currentStrategy) {
-                case 'bensniper':
-                    result = analyzeBenSniperStrategy();
-                    break;
-                case 'bensniper2':
-                    result = analyzeBenSniper2Strategy();
+                case 'bensniperentry':
+                    result = analyzeBenSniperEntryStrategy();
                     break;
                 case 'momentum':
                     result = analyzeMomentumStrategy();
@@ -2430,14 +2161,8 @@
                 case 'triangle':
                     result = analyzeTriangleStrategy();
                     break;
-                case 'acceleration':
-                    result = analyzeAccelerationStrategy();
-                    break;
                 case 'bollinger':
                     result = analyzeBollingerStrategy();
-                    break;
-                case 'candlestick':
-                    result = analyzeCandlestickStrategy();
                     break;
                 case 'multitime':
                     result = analyzeMultiTimeStrategy();
@@ -2452,7 +2177,6 @@
                 const setupId = `${currentStrategy}-${Date.now()}`;
                 const timeSinceLastSetup = Date.now() - lastSetupDetectedTime;
                 
-                // Allow new setup only if 60 seconds passed or different setup detected
                 if (timeSinceLastSetup < 60000 && currentSetupId === setupId) {
                     updateSignalUI('NONE', 'One Entry Per Setup: Waiting for new setup...');
                     return null;
@@ -2520,13 +2244,12 @@
                 currentPrice = data.tick.quote;
                 document.getElementById('currentPrice').textContent = currentPrice.toFixed(2);
                 
-                // Keep last 1000 ticks
                 if (tickHistory.length > 1000) tickHistory.shift();
 
                 const now = Date.now();
 
                 // Build 30-second candles
-                if (['bensniper', 'bensniper2', 'momentum', 'acceleration'].includes(currentStrategy)) {
+                if (['bensniperentry', 'momentum'].includes(currentStrategy)) {
                     if (currentCandle30Sec.ticks === 0) {
                         currentCandle30Sec.open = currentPrice;
                         currentCandle30Sec.high = currentPrice;
@@ -2550,7 +2273,7 @@
                 }
 
                 // Build 1-minute candles
-                if (['bensniper2', 'vwap', 'triangle', 'candlestick', 'multitime'].includes(currentStrategy)) {
+                if (['bensniperentry', 'vwap', 'triangle', 'multitime'].includes(currentStrategy)) {
                     if (currentCandle1Min.ticks === 0) {
                         currentCandle1Min.open = currentPrice;
                         currentCandle1Min.high = currentPrice;
@@ -2574,7 +2297,7 @@
                 }
 
                 // Build 5-minute candles
-                if (['bensniper2', 'multitime'].includes(currentStrategy)) {
+                if (currentStrategy === 'multitime') {
                     if (currentCandle5Min.ticks === 0) {
                         currentCandle5Min.open = currentPrice;
                         currentCandle5Min.high = currentPrice;
@@ -2593,30 +2316,6 @@
                         if (now - currentCandle5Min.timestamp >= CANDLE_5MIN_MS) {
                             candle5MinHistory.push({ ...currentCandle5Min });
                             currentCandle5Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
-                        }
-                    }
-                }
-
-                // Build 15-minute candles
-                if (currentStrategy === 'bensniper2') {
-                    if (currentCandle15Min.ticks === 0) {
-                        currentCandle15Min.open = currentPrice;
-                        currentCandle15Min.high = currentPrice;
-                        currentCandle15Min.low = currentPrice;
-                        currentCandle15Min.close = currentPrice;
-                        currentCandle15Min.ticks = 1;
-                        currentCandle15Min.timestamp = now;
-                        currentCandle15Min.volume = 1;
-                    } else {
-                        currentCandle15Min.high = Math.max(currentCandle15Min.high, currentPrice);
-                        currentCandle15Min.low = Math.min(currentCandle15Min.low, currentPrice);
-                        currentCandle15Min.close = currentPrice;
-                        currentCandle15Min.ticks++;
-                        currentCandle15Min.volume++;
-
-                        if (now - currentCandle15Min.timestamp >= CANDLE_15MIN_MS) {
-                            candle15MinHistory.push({ ...currentCandle15Min });
-                            currentCandle15Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
                         }
                     }
                 }
@@ -2645,15 +2344,9 @@
             candle30SecHistory = [];
             candle1MinHistory = [];
             candle5MinHistory = [];
-            candle15MinHistory = [];
-            candleSizeHistory = [];
             currentCandle30Sec = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
             currentCandle1Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
             currentCandle5Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
-            currentCandle15Min = { open: 0, high: 0, low: 0, close: 0, ticks: 0, timestamp: 0, volume: 0 };
-            confirmingTicks = 0;
-            waitingForConfirmation = false;
-            pendingSignal = null;
             resetStrategyIndicators();
             currentMarketSymbol = symbol;
             ws.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
@@ -2876,10 +2569,10 @@
             
             // Check strategy selector
             const strategyElement = document.getElementById('strategySelector');
-            if (strategyElement && strategyElement.options.length === 9) {
-                checks.push(`✓ Strategy Selector: 9 strategies loaded (Current: ${currentStrategy})`);
+            if (strategyElement && strategyElement.options.length === 6) {
+                checks.push(`✓ Strategy Selector: 6 strategies loaded (Current: ${currentStrategy})`);
             } else {
-                checks.push(`✗ Strategy Selector: ISSUE DETECTED (Expected 9, Got ${strategyElement?.options.length || 0})`);
+                checks.push(`✗ Strategy Selector: ISSUE DETECTED (Expected 6, Got ${strategyElement?.options.length || 0})`);
             }
 
             // Check market toggles
@@ -2924,16 +2617,14 @@
             checks.push(`✓ 30-Sec Candles: ${candle30SecHistory.length} (Unlimited)`);
             checks.push(`✓ 1-Min Candles: ${candle1MinHistory.length} (Unlimited)`);
             checks.push(`✓ 5-Min Candles: ${candle5MinHistory.length} (Unlimited)`);
-            checks.push(`✓ 15-Min Candles: ${candle15MinHistory.length} (Unlimited)`);
             checks.push(`✓ Alternator Mode: ${document.getElementById('alternatorMode').checked ? 'ON' : 'OFF'}`);
             checks.push(`✓ Reverse Mode: ${document.getElementById('reverseMode').checked ? 'ON' : 'OFF'}`);
             checks.push(`✓ One Entry Per Setup: ${document.getElementById('oneEntryMode').checked ? 'ON' : 'OFF'}`);
             checks.push(`✓ Last Trade Type: ${lastExecutedTradeType || 'None'}`);
             checks.push(`✓ Fast Candle Collection: ACTIVE (Real-time tick processing)`);
             checks.push(`✓ Signal Status Display: ENHANCED (Bright & Readable)`);
-            checks.push(`✓ Ben Sniper 1.0: With tick confirmation (2-3 ticks)`);
-            checks.push(`✓ Ben Sniper 2.0: With RSI + EMA + Volume filters`);
-            checks.push(`✓ Multi-Time Con: With HH/HL detection + EMA 50`);
+            checks.push(`✓ Removed Strategies: Acceleration, Candlestick, Ben Sniper 2.0`);
+            checks.push(`✓ Active Strategies: Ben Sniper Entry, Momentum, VWAP, Triangle, Bollinger, Multi-Time Con`);
 
             console.log('=== INTEGRITY CHECK ===');
             checks.forEach(check => console.log(check));
@@ -3020,10 +2711,13 @@
             loadSettings();
             updateStrategyDescription();
             addLog('Ben Scalper Bot initialized', 'success');
-            addLog('9 Professional Trading Strategies loaded', 'info');
-            addLog('✅ Ben Sniper 1.0 - Updated with tick confirmation', 'success');
-            addLog('✅ Ben Sniper 2.0 - NEW! Advanced filters added', 'success');
-            addLog('✅ Multi-Time Con - Updated with exact entry rules', 'success');
+            addLog('6 Professional Trading Strategies loaded', 'info');
+            addLog('✅ Ben Sniper Entry - NEW! RSI + 3-candle pattern', 'success');
+            addLog('✅ Momentum Oscillator Cross', 'info');
+            addLog('✅ VWAP Bounce Strategy', 'info');
+            addLog('✅ Symmetrical Triangle Break', 'info');
+            addLog('✅ Bollinger Scalp', 'info');
+            addLog('✅ Multi-Time Con', 'info');
             addLog('Unlimited candle collection enabled', 'info');
             addLog('Fast data processing active - Real-time tick processing', 'info');
 
@@ -3052,7 +2746,7 @@
                 addLog('=== INTEGRITY CHECK COMPLETE ===', 'success');
                 addLog(`Total checks: ${checks.length}`, 'info');
                 addLog(`Strategy: ${currentStrategy}`, 'info');
-                addLog(`Available Strategies: 9 (Including Ben Sniper 2.0)`, 'info');
+                addLog(`Available Strategies: 6`, 'info');
                 addLog(`Markets configured: ${availableMarkets.length}`, 'info');
                 addLog(`Alternator Mode: ${document.getElementById('alternatorMode').checked ? 'ON' : 'OFF'}`, 'info');
                 addLog(`Reverse Mode: ${document.getElementById('reverseMode').checked ? 'ON' : 'OFF'}`, 'info');
@@ -3072,21 +2766,18 @@
 
         // Final initialization log
         addLog('=== BOT CONFIGURATION ===', 'success');
-        addLog('Strategy System: 9 Strategies Available', 'info');
-        addLog('  1. Ben Sniper 1.0 (Updated with tick confirmation)', 'info');
+        addLog('Strategy System: 6 Strategies Available', 'info');
+        addLog('  1. Ben Sniper Entry (NEW!)', 'info');
         addLog('  2. Momentum Oscillator Cross', 'info');
         addLog('  3. VWAP Bounce Strategy', 'info');
         addLog('  4. Symmetrical Triangle Break', 'info');
-        addLog('  5. Acceleration Break Sniper', 'info');
-        addLog('  6. Bollinger Scalp', 'info');
-        addLog('  7. Candlestick Pattern Precision', 'info');
-        addLog('  8. Multi-Time Con (Updated with exact rules)', 'info');
-        addLog('  9. Ben Sniper 2.0 (NEW! Advanced strategy)', 'info');
+        addLog('  5. Bollinger Scalp', 'info');
+        addLog('  6. Multi-Time Con', 'info');
         addLog('Market Cycler: Enabled', 'info');
         addLog('Risk Management: Enabled', 'info');
         addLog('Alternator Mode: Available', 'info');
         addLog('Reverse Mode: Available', 'info');
-        addLog('One Entry Per Setup: Available (NEW!)', 'info');
+        addLog('One Entry Per Setup: Available', 'info');
         addLog('Auto-Trade: Available', 'info');
         addLog('Manual Trading: Available', 'info');
         addLog('Candle Collection: UNLIMITED', 'info');
