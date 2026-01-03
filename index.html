@@ -900,17 +900,20 @@
         let lastHeartbeat = Date.now();
         
         // FIX #1: One trade per candle per market tracking
-        let tradedCandles = {}; // Tracks which candles have been traded on per market
+        let tradedCandles = {};
         
         // FIX #4: Request ID tracking for race conditions
         let requestIdCounter = 0;
         let pendingProposals = new Map();
+        
+        // SOLUTION: Buy request mapping (req_id method)
+        let buyRequestMap = new Map();
 
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
             activeMarkets[symbol] = true;
             candleData[symbol] = [];
-            tradedCandles[symbol] = new Set(); // Initialize tracking for each market
+            tradedCandles[symbol] = new Set();
         });
 
         // Update connection badge
@@ -1072,12 +1075,12 @@
                 ws.onopen = () => {
                     logActivity('WebSocket connected', 'success');
                     updateConnectionBadge(true);
-                    lastHeartbeat = Date.now(); // FIX #3: Initialize heartbeat timestamp
+                    lastHeartbeat = Date.now();
                     ws.send(JSON.stringify({ authorize: token }));
                 };
 
                 ws.onmessage = (msg) => {
-                    lastHeartbeat = Date.now(); // FIX #3: Update heartbeat on every message
+                    lastHeartbeat = Date.now();
                     const data = JSON.parse(msg.data);
                     handleWebSocketMessage(data, resolve, reject);
                 };
@@ -1178,22 +1181,36 @@
                 }
             }
 
+            // SOLUTION: Handle buy response with req_id mapping
             if (data.msg_type === 'buy') {
                 if (data.buy.contract_id) {
-                    const symbol = data.echo_req?.parameters?.symbol;
-                    pendingTrades.set(data.buy.contract_id, {
-                        symbol: symbol,
-                        type: data.echo_req.parameters?.contract_type,
-                        stake: data.echo_req.parameters?.amount,
-                        candle_time: data.echo_req.parameters?.candle_time // Track candle time
-                    });
-                    // Subscribe to contract updates
-                    ws.send(JSON.stringify({
-                        proposal_open_contract: 1,
-                        contract_id: data.buy.contract_id,
-                        subscribe: 1
-                    }));
-                    logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
+                    const reqId = data.req_id;
+                    
+                    // Retrieve trade context from buyRequestMap using req_id
+                    if (buyRequestMap.has(reqId)) {
+                        const tradeContext = buyRequestMap.get(reqId);
+                        
+                        pendingTrades.set(data.buy.contract_id, {
+                            symbol: tradeContext.symbol,
+                            type: tradeContext.type,
+                            stake: tradeContext.stake,
+                            candle_time: tradeContext.candleKey
+                        });
+                        
+                        // Clean up the map
+                        buyRequestMap.delete(reqId);
+                        
+                        // Subscribe to contract updates
+                        ws.send(JSON.stringify({
+                            proposal_open_contract: 1,
+                            contract_id: data.buy.contract_id,
+                            subscribe: 1
+                        }));
+                        
+                        logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
+                    } else {
+                        logActivity(`Warning: Buy response received but no matching request found for req_id ${reqId}`, 'error');
+                    }
                 }
             }
 
@@ -1202,14 +1219,12 @@
             }
 
             if (data.msg_type === 'forget') {
-                // Subscription forgotten successfully
                 if (data.forget) {
                     logActivity(`Unsubscribed from subscription ID: ${data.forget}`, 'info');
                 }
             }
 
             if (data.msg_type === 'ping') {
-                // Respond to ping
                 ws.send(JSON.stringify({ ping: 1 }));
             }
         }
@@ -1308,7 +1323,6 @@
         function subscribeToMarket(symbol) {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-            // Check if already subscribed
             if (marketSubscriptions[symbol]) {
                 logActivity(`Already monitoring ${markets[symbol]}`, 'info');
                 return;
@@ -1336,7 +1350,7 @@
                 ws.send(JSON.stringify({ forget: marketSubscriptions[symbol] }));
                 delete marketSubscriptions[symbol];
                 candleData[symbol] = [];
-                tradedCandles[symbol].clear(); // Clear traded candles tracking
+                tradedCandles[symbol].clear();
                 logActivity(`Unsubscribed from ${markets[symbol]}`);
             }
         }
@@ -1438,7 +1452,7 @@
 
             let ema50 = null;
             if (trendFilter) {
-                ema50 = calculateEMA(candles.slice(0, -1), 50); // Calculate EMA excluding current forming candle
+                ema50 = calculateEMA(candles.slice(0, -1), 50);
             }
 
             // Check for Tweezers Bottom (BUY)
@@ -1610,7 +1624,7 @@
             }
         }
 
-        // FIX #1 & #4: Execute trade with candle tracking and unique request IDs
+        // SOLUTION: Execute trade with req_id mapping method
         async function executeTrade(symbol, type, candleKey) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 logActivity('Cannot execute trade: WebSocket not connected', 'error');
@@ -1618,11 +1632,11 @@
             }
 
             const stake = parseFloat(document.getElementById('stakeAmount').value);
-            const durationType = document.getElementById('durationType').value; // ✅ FIXED: Removed extra parenthesis
+            const durationType = document.getElementById('durationType').value;
             const durationValue = parseInt(document.getElementById('durationValue').value);
 
-            // FIX #4: Generate unique request ID
-            const reqId = ++requestIdCounter;
+            // Generate unique request ID for proposal
+            const proposalReqId = ++requestIdCounter;
 
             const proposal = {
                 proposal: 1,
@@ -1633,39 +1647,45 @@
                 duration: durationValue,
                 duration_unit: durationType,
                 symbol: symbol,
-                req_id: reqId // Add unique request ID
+                req_id: proposalReqId
             };
 
             try {
                 ws.send(JSON.stringify(proposal));
                 
-                // FIX #4: Wait for proposal response with matching request ID
+                // Wait for proposal response with matching request ID
                 const proposalResponse = await new Promise((resolve, reject) => {
                     const timeout = setTimeout(() => {
-                        pendingProposals.delete(reqId);
+                        pendingProposals.delete(proposalReqId);
                         reject(new Error('Proposal timeout'));
                     }, 5000);
                     
-                    pendingProposals.set(reqId, { resolve, reject, timeout });
+                    pendingProposals.set(proposalReqId, { resolve, reject, timeout });
                 });
 
                 // Clear timeout
-                if (pendingProposals.has(reqId)) {
-                    clearTimeout(pendingProposals.get(reqId).timeout);
-                    pendingProposals.delete(reqId);
+                if (pendingProposals.has(proposalReqId)) {
+                    clearTimeout(pendingProposals.get(proposalReqId).timeout);
+                    pendingProposals.delete(proposalReqId);
                 }
 
                 if (proposalResponse.proposal) {
-                    // Buy the contract
+                    // Generate unique request ID for buy
+                    const buyReqId = ++requestIdCounter;
+                    
+                    // SOLUTION: Store trade context in buyRequestMap with req_id
+                    buyRequestMap.set(buyReqId, {
+                        symbol: symbol,
+                        type: type,
+                        stake: stake,
+                        candleKey: candleKey
+                    });
+                    
+                    // Buy the contract with req_id (NO custom parameters in buy call)
                     ws.send(JSON.stringify({
                         buy: proposalResponse.proposal.id,
                         price: stake,
-                        parameters: {
-                            symbol: symbol,
-                            contract_type: type,
-                            amount: stake,
-                            candle_time: candleKey // Track which candle this trade is for
-                        }
+                        req_id: buyReqId  // Only send req_id, no custom parameters
                     }));
 
                     // FIX #1: Mark this candle as traded
@@ -1734,7 +1754,7 @@
                     pendingTrades.delete(contract.contract_id);
                 }
             }
-        }
+         }
 
         // Update statistics
         function updateStats() {
@@ -1744,7 +1764,7 @@
             
             const plElement = document.getElementById('profitLoss');
             plElement.textContent = tradeStats.profitLoss.toFixed(2);
-            plElement.className = 'stat-value ' + (tradeStats.profitLoss>= 0 ? 'profit' : 'loss');
+            plElement.className = 'stat-value ' + (tradeStats.profitLoss >= 0 ? 'profit' : 'loss');
         }
 
         // Update trade history table
@@ -2265,3 +2285,4 @@
     </script>
 </body>
 </html>
+                
