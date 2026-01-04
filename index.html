@@ -1616,7 +1616,7 @@
             return ema;
         }
 
-        // Check for trading signals - UPDATED WITH REQUIRE ENGULFING
+        // Check for trading signals
         function checkForSignals(symbol) {
             if (candleData[symbol].length < 52) return;
 
@@ -1631,13 +1631,13 @@
                 return;
             }
 
-            // Get all filter states including the NEW one
+            // Get all filter states
             const trendFilter = document.getElementById('trendFilter').checked;
             const zeroClosingFilter = document.getElementById('zeroClosingFilter').checked;
             const ignoreWickPercent = document.getElementById('ignoreWickPercent').checked;
             const ignoreHeight = document.getElementById('ignoreHeight').checked;
             const ignoreMatchDiff = document.getElementById('ignoreMatchDiff').checked;
-            const requireEngulfing = document.getElementById('requireEngulfing').checked; // <--- NEW
+            const requireEngulfing = document.getElementById('requireEngulfing').checked;
 
             const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value) / 100;
             const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value) / 100;
@@ -1647,7 +1647,6 @@
                 ema50 = calculateEMA(candles.slice(0, -1), 50);
             }
 
-            // Pass the new variable to the check functions
             const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, minLowerWickBuy, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing);
             
             if (buySignal) {
@@ -1662,7 +1661,6 @@
                 }
             }
 
-            // Pass the new variable to the check functions
             const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, minUpperWickSell, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing);
             
             if (sellSignal) {
@@ -1678,60 +1676,46 @@
             }
         }
 
-        // Check Tweezers Bottom pattern - UPDATED WITH REQUIRE ENGULFING
+        // FIXED: Check Tweezers Bottom pattern
         function checkTweezersBottom(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing) {
+            // 1. Candle 1 must be RED
             const isCandle1Red = candle1.close < candle1.open;
             if (!isCandle1Red) return false;
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
-            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
-            const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
-
+            
+            // 2. CHECK WICK % on the First Candle ONLY (The Signal Candle)
             if (candle1LowerWick / candle1Range < minWickPercent) return false;
 
-            if (!ignoreWickPercent) {
-                if (zeroClosing) {
-                    if (candle1UpperWick / candle1Range > 0.01) return false;
-                } else {
-                    if (candle1UpperWick / candle1Range > 0.2) return false;
-                }
+            // 3. Zero Closing Filter (Optional Strict Mode)
+            if (zeroClosing) {
+                const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
+                if (candle1UpperWick / candle1Range > 0.01) return false; // Must be shaven top
             }
 
+            // 4. Candle 2 must be GREEN
             const isCandle2Green = candle2.close > candle2.open;
             if (!isCandle2Green) return false;
-
-            const candle2Range = candle2.high - candle2.low;
-            if (candle2Range === 0) return false;
-
-            const candle2Body = Math.abs(candle2.close - candle2.open);
-            const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
-            const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
-
-            if (candle2LowerWick / candle2Range < minWickPercent) return false;
-
-            if (!ignoreWickPercent) {
-                if (zeroClosing) {
-                    if (candle2UpperWick / candle2Range > 0.01) return false;
-                } else {
-                    if (candle2UpperWick / candle2Range > 0.2) return false;
-                }
-            }
-
+            
+            // 5. Check Matching Lows (Unless Ignored)
             if (!ignoreMatchDiff) {
-                const lowDiff = Math.abs(candle1.low - candle2.low) / candle1.low;
-                if (lowDiff > 0.003) return false;
+                const lowDiff = Math.abs(candle1.low - candle2.low);
+                // Use a dynamic tolerance based on price (0.01%) instead of hardcoded 0.003
+                if (lowDiff / candle1.low > 0.0001 && lowDiff > 0.05) return false; 
             }
 
+            // 6. Height Check (If NOT ignored, enforce strict engulfing size)
+            // If Ignore Height is ON, we skip this check entirely.
             if (!ignoreHeight) {
-                if (candle2Body < candle1Body) return false;
-            } else {
+                const candle1Body = Math.abs(candle1.close - candle1.open);
+                const candle2Body = Math.abs(candle2.close - candle2.open);
                 if (candle2Body < candle1Body * 0.5) return false;
             }
 
-            // --- THE NEW TOGGLE LOGIC ---
+            // 7. Strict Engulfing Toggle
             if (requireEngulfing) {
                 if (candle2.close < candle1.high) return false;
             }
@@ -1739,60 +1723,44 @@
             return true;
         }
 
-        // Check Tweezers Top pattern - UPDATED WITH REQUIRE ENGULFING
+        // FIXED: Check Tweezers Top pattern
         function checkTweezersTop(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing) {
+            // 1. Candle 1 must be GREEN
             const isCandle1Green = candle1.close > candle1.open;
             if (!isCandle1Green) return false;
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
-            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
-            const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
 
+            // 2. CHECK WICK % on the First Candle ONLY
             if (candle1UpperWick / candle1Range < minWickPercent) return false;
 
-            if (!ignoreWickPercent) {
-                if (zeroClosing) {
-                    if (candle1LowerWick / candle1Range > 0.01) return false;
-                } else {
-                    if (candle1LowerWick / candle1Range > 0.2) return false;
-                }
+            // 3. Zero Closing Filter
+            if (zeroClosing) {
+                const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
+                if (candle1LowerWick / candle1Range > 0.01) return false; // Must be shaven bottom
             }
 
+            // 4. Candle 2 must be RED
             const isCandle2Red = candle2.close < candle2.open;
             if (!isCandle2Red) return false;
 
-            const candle2Range = candle2.high - candle2.low;
-            if (candle2Range === 0) return false;
-
-            const candle2Body = Math.abs(candle2.close - candle2.open);
-            const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
-            const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
-
-            if (candle2UpperWick / candle2Range < minWickPercent) return false;
-
-            if (!ignoreWickPercent) {
-                if (zeroClosing) {
-                    if (candle2LowerWick / candle2Range > 0.01) return false;
-                } else {
-                    if (candle2LowerWick / candle2Range > 0.2) return false;
-                }
-            }
-
+            // 5. Check Matching Highs (Unless Ignored)
             if (!ignoreMatchDiff) {
-                const highDiff = Math.abs(candle1.high - candle2.high) / candle1.high;
-                if (highDiff > 0.003) return false;
+                const highDiff = Math.abs(candle1.high - candle2.high);
+                if (highDiff / candle1.high > 0.0001 && highDiff > 0.05) return false;
             }
 
+            // 6. Height Check
             if (!ignoreHeight) {
-                if (candle2Body < candle1Body) return false;
-            } else {
+                const candle1Body = Math.abs(candle1.close - candle1.open);
+                const candle2Body = Math.abs(candle2.close - candle2.open);
                 if (candle2Body < candle1Body * 0.5) return false;
             }
 
-            // --- THE NEW TOGGLE LOGIC ---
+            // 7. Strict Engulfing Toggle
             if (requireEngulfing) {
                 if (candle2.close > candle1.low) return false;
             }
