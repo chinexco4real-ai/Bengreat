@@ -828,6 +828,13 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Require Engulfing (Strict Breakout)</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="requireEngulfing">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <h2 class="panel-title" style="margin-top: 20px;">⚙️ Trade Settings</h2>
@@ -1032,6 +1039,7 @@
             const savedIgnoreWickPercent = sessionStorage.getItem('ignoreWickPercent');
             const savedIgnoreHeight = sessionStorage.getItem('ignoreHeight');
             const savedIgnoreMatchDiff = sessionStorage.getItem('ignoreMatchDiff');
+            const savedRequireEngulfing = sessionStorage.getItem('requireEngulfing');
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
@@ -1068,6 +1076,10 @@
 
             if (savedIgnoreMatchDiff) {
                 document.getElementById('ignoreMatchDiff').checked = savedIgnoreMatchDiff === 'true';
+            }
+
+            if (savedRequireEngulfing) {
+                document.getElementById('requireEngulfing').checked = savedRequireEngulfing === 'true';
             }
 
             if (savedStake) {
@@ -1118,6 +1130,7 @@
             sessionStorage.setItem('ignoreWickPercent', document.getElementById('ignoreWickPercent').checked);
             sessionStorage.setItem('ignoreHeight', document.getElementById('ignoreHeight').checked);
             sessionStorage.setItem('ignoreMatchDiff', document.getElementById('ignoreMatchDiff').checked);
+            sessionStorage.setItem('requireEngulfing', document.getElementById('requireEngulfing').checked);
             sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
             sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
             sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
@@ -1603,7 +1616,7 @@
             return ema;
         }
 
-        // Check for trading signals
+        // Check for trading signals - UPDATED WITH REQUIRE ENGULFING
         function checkForSignals(symbol) {
             if (candleData[symbol].length < 52) return;
 
@@ -1618,11 +1631,14 @@
                 return;
             }
 
+            // Get all filter states including the NEW one
             const trendFilter = document.getElementById('trendFilter').checked;
             const zeroClosingFilter = document.getElementById('zeroClosingFilter').checked;
             const ignoreWickPercent = document.getElementById('ignoreWickPercent').checked;
             const ignoreHeight = document.getElementById('ignoreHeight').checked;
             const ignoreMatchDiff = document.getElementById('ignoreMatchDiff').checked;
+            const requireEngulfing = document.getElementById('requireEngulfing').checked; // <--- NEW
+
             const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value) / 100;
             const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value) / 100;
 
@@ -1631,7 +1647,9 @@
                 ema50 = calculateEMA(candles.slice(0, -1), 50);
             }
 
-            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, minLowerWickBuy, ignoreWickPercent, ignoreHeight, ignoreMatchDiff);
+            // Pass the new variable to the check functions
+            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, minLowerWickBuy, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing);
+            
             if (buySignal) {
                 if (trendFilter && ema50) {
                     if (lastCandle.close > ema50) {
@@ -1644,7 +1662,9 @@
                 }
             }
 
-            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, minUpperWickSell, ignoreWickPercent, ignoreHeight, ignoreMatchDiff);
+            // Pass the new variable to the check functions
+            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, minUpperWickSell, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing);
+            
             if (sellSignal) {
                 if (trendFilter && ema50) {
                     if (lastCandle.close < ema50) {
@@ -1658,8 +1678,8 @@
             }
         }
 
-        // Check Tweezers Bottom pattern - FIXED LOGIC
-        function checkTweezersBottom(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff) {
+        // Check Tweezers Bottom pattern - UPDATED WITH REQUIRE ENGULFING
+        function checkTweezersBottom(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing) {
             const isCandle1Red = candle1.close < candle1.open;
             if (!isCandle1Red) return false;
 
@@ -1670,10 +1690,8 @@
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
 
-            // Check LOWER wick percentage for candle 1 (ALWAYS CHECKED - this is the dominant wick for BUY)
             if (candle1LowerWick / candle1Range < minWickPercent) return false;
 
-            // Check UPPER wick for candle 1 (ONLY checked when ignoreWickPercent is OFF)
             if (!ignoreWickPercent) {
                 if (zeroClosing) {
                     if (candle1UpperWick / candle1Range > 0.01) return false;
@@ -1692,10 +1710,8 @@
             const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
             const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
 
-            // Check LOWER wick percentage for candle 2 (ALWAYS CHECKED - this is the dominant wick for BUY)
             if (candle2LowerWick / candle2Range < minWickPercent) return false;
 
-            // Check UPPER wick for candle 2 (ONLY checked when ignoreWickPercent is OFF)
             if (!ignoreWickPercent) {
                 if (zeroClosing) {
                     if (candle2UpperWick / candle2Range > 0.01) return false;
@@ -1704,26 +1720,27 @@
                 }
             }
 
-            // Check low match difference (unless ignoreMatchDiff is enabled)
             if (!ignoreMatchDiff) {
                 const lowDiff = Math.abs(candle1.low - candle2.low) / candle1.low;
                 if (lowDiff > 0.003) return false;
             }
 
-            // Check height requirement (unless ignoreHeight is enabled)
             if (!ignoreHeight) {
                 if (candle2Body < candle1Body) return false;
             } else {
                 if (candle2Body < candle1Body * 0.5) return false;
             }
 
-            if (candle2.close < candle1.high) return false;
+            // --- THE NEW TOGGLE LOGIC ---
+            if (requireEngulfing) {
+                if (candle2.close < candle1.high) return false;
+            }
 
             return true;
         }
 
-        // Check Tweezers Top pattern - FIXED LOGIC
-        function checkTweezersTop(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff) {
+        // Check Tweezers Top pattern - UPDATED WITH REQUIRE ENGULFING
+        function checkTweezersTop(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing) {
             const isCandle1Green = candle1.close > candle1.open;
             if (!isCandle1Green) return false;
 
@@ -1734,10 +1751,8 @@
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
 
-            // Check UPPER wick percentage for candle 1 (ALWAYS CHECKED - this is the dominant wick for SELL)
             if (candle1UpperWick / candle1Range < minWickPercent) return false;
 
-            // Check LOWER wick for candle 1 (ONLY checked when ignoreWickPercent is OFF)
             if (!ignoreWickPercent) {
                 if (zeroClosing) {
                     if (candle1LowerWick / candle1Range > 0.01) return false;
@@ -1756,10 +1771,8 @@
             const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
             const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
 
-            // Check UPPER wick percentage for candle 2 (ALWAYS CHECKED - this is the dominant wick for SELL)
             if (candle2UpperWick / candle2Range < minWickPercent) return false;
 
-            // Check LOWER wick for candle 2 (ONLY checked when ignoreWickPercent is OFF)
             if (!ignoreWickPercent) {
                 if (zeroClosing) {
                     if (candle2LowerWick / candle2Range > 0.01) return false;
@@ -1768,20 +1781,21 @@
                 }
             }
 
-            // Check high match difference (unless ignoreMatchDiff is enabled)
             if (!ignoreMatchDiff) {
                 const highDiff = Math.abs(candle1.high - candle2.high) / candle1.high;
                 if (highDiff > 0.003) return false;
             }
 
-            // Check height requirement (unless ignoreHeight is enabled)
             if (!ignoreHeight) {
                 if (candle2Body < candle1Body) return false;
             } else {
                 if (candle2Body < candle1Body * 0.5) return false;
             }
 
-            if (candle2.close > candle1.low) return false;
+            // --- THE NEW TOGGLE LOGIC ---
+            if (requireEngulfing) {
+                if (candle2.close > candle1.low) return false;
+            }
 
             return true;
         }
@@ -2069,6 +2083,11 @@
             saveSettings();
         });
 
+        document.getElementById('requireEngulfing').addEventListener('change', () => {
+            logActivity(`Require Engulfing filter ${document.getElementById('requireEngulfing').checked ? 'enabled' : 'disabled'}`);
+            saveSettings();
+        });
+
         document.getElementById('stakeAmount').addEventListener('change', () => {
             logActivity(`Stake amount updated to ${document.getElementById('stakeAmount').value}`);
             saveSettings();
@@ -2247,7 +2266,8 @@
             'zeroClosingFilter': 'Only trade on perfect candle closes (no opposite wicks)',
             'ignoreWickPercent': 'Ignore the opposite wick percentage requirement (upper for buy, lower for sell)',
             'ignoreHeight': 'Allow confirmation candle to be shorter (min 50% of first candle body)',
-            'ignoreMatchDiff': 'Ignore the low/high match difference requirement'
+            'ignoreMatchDiff': 'Ignore the low/high match difference requirement',
+            'requireEngulfing': 'Require second candle to close beyond first candle body (strict breakout)'
         };
 
         Object.entries(tooltips).forEach(([id, text]) => {
