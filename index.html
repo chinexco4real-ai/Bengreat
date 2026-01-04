@@ -235,6 +235,57 @@
             background: #2a3250;
             border-radius: 5px;
             border: 1px solid #3d4663;
+            position: relative;
+        }
+
+        .market-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1;
+        }
+
+        .market-status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #3d4663;
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+        }
+
+        .market-status-dot.subscribed {
+            background-color: #2ecc71;
+            box-shadow: 0 0 10px #2ecc71, 0 0 20px #2ecc71, 0 0 30px #2ecc71;
+            animation: glow-pulse 2s infinite;
+        }
+
+        .market-status-dot.failed {
+            background-color: #ff4757;
+            box-shadow: 0 0 10px #ff4757;
+        }
+
+        .market-status-dot.subscribing {
+            background-color: #f39c12;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes glow-pulse {
+            0%, 100% {
+                box-shadow: 0 0 5px #2ecc71, 0 0 10px #2ecc71, 0 0 15px #2ecc71;
+            }
+            50% {
+                box-shadow: 0 0 10px #2ecc71, 0 0 20px #2ecc71, 0 0 30px #2ecc71;
+            }
+        }
+
+        @keyframes blink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.3;
+            }
         }
 
         .market-name {
@@ -492,14 +543,14 @@
             transition: all 0.3s ease;
         }
 
-        .signal-item.win {
-            border-left-color: #2ecc71;
-            background: rgba(46, 204, 113, 0.1);
+        .signal-item.buy {
+            border-left-color: #00d4ff;
+            background: rgba(0, 212, 255, 0.1);
         }
 
-        .signal-item.loss {
-            border-left-color: #ff4757;
-            background: rgba(255, 71, 87, 0.1);
+        .signal-item.sell {
+            border-left-color: #f39c12;
+            background: rgba(243, 156, 18, 0.1);
         }
 
         .signal-text {
@@ -756,6 +807,27 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Ignore % (Opposite Wick)</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="ignoreWickPercent">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Ignore Height (Candle Height)</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="ignoreHeight">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Ignore Match Diff (Low/High Match)</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="ignoreMatchDiff">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <h2 class="panel-title" style="margin-top: 20px;">⚙️ Trade Settings</h2>
@@ -884,6 +956,8 @@
         let isAutoTrading = false;
         let activeMarkets = {};
         let marketSubscriptions = {};
+        let pendingSubscriptions = new Map();
+        let marketSubscriptionStatus = {};
         let candleData = {};
         let tradeHistory = [];
         let sessionTimer = null;
@@ -899,22 +973,41 @@
         let isFirstSignal = true;
         let lastHeartbeat = Date.now();
         
-        // FIX #1: One trade per candle per market tracking
+        // One trade per candle per market tracking
         let tradedCandles = {};
         
-        // FIX #4: Request ID tracking for race conditions
+        // Request ID tracking
         let requestIdCounter = 0;
         let pendingProposals = new Map();
-        
-        // SOLUTION: Buy request mapping (req_id method)
         let buyRequestMap = new Map();
+
+        // Bot activation tracking
+        let botStartTime = null;
+        let initializedMarkets = new Set();
 
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
             activeMarkets[symbol] = true;
             candleData[symbol] = [];
             tradedCandles[symbol] = new Set();
+            marketSubscriptionStatus[symbol] = 'inactive';
         });
+
+        // Update market status dot
+        function updateMarketStatusDot(symbol, status) {
+            const dot = document.getElementById(`status-dot-${symbol}`);
+            if (dot) {
+                dot.className = 'market-status-dot';
+                if (status === 'subscribed') {
+                    dot.classList.add('subscribed');
+                } else if (status === 'failed') {
+                    dot.classList.add('failed');
+                } else if (status === 'subscribing') {
+                    dot.classList.add('subscribing');
+                }
+                marketSubscriptionStatus[symbol] = status;
+            }
+        }
 
         // Update connection badge
         function updateConnectionBadge(connected) {
@@ -936,6 +1029,9 @@
             const savedMarkets = sessionStorage.getItem('activeMarkets');
             const savedTrendFilter = sessionStorage.getItem('trendFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
+            const savedIgnoreWickPercent = sessionStorage.getItem('ignoreWickPercent');
+            const savedIgnoreHeight = sessionStorage.getItem('ignoreHeight');
+            const savedIgnoreMatchDiff = sessionStorage.getItem('ignoreMatchDiff');
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
@@ -960,6 +1056,18 @@
 
             if (savedZeroFilter) {
                 document.getElementById('zeroClosingFilter').checked = savedZeroFilter === 'true';
+            }
+
+            if (savedIgnoreWickPercent) {
+                document.getElementById('ignoreWickPercent').checked = savedIgnoreWickPercent === 'true';
+            }
+
+            if (savedIgnoreHeight) {
+                document.getElementById('ignoreHeight').checked = savedIgnoreHeight === 'true';
+            }
+
+            if (savedIgnoreMatchDiff) {
+                document.getElementById('ignoreMatchDiff').checked = savedIgnoreMatchDiff === 'true';
             }
 
             if (savedStake) {
@@ -1007,6 +1115,9 @@
             sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
             sessionStorage.setItem('trendFilter', document.getElementById('trendFilter').checked);
             sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
+            sessionStorage.setItem('ignoreWickPercent', document.getElementById('ignoreWickPercent').checked);
+            sessionStorage.setItem('ignoreHeight', document.getElementById('ignoreHeight').checked);
+            sessionStorage.setItem('ignoreMatchDiff', document.getElementById('ignoreMatchDiff').checked);
             sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
             sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
             sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
@@ -1018,7 +1129,7 @@
             sessionStorage.setItem('tradeStats', JSON.stringify(tradeStats));
         }
 
-        // Render markets
+        // Render markets with status dots
         function renderMarkets() {
             const grid = document.getElementById('marketsGrid');
             grid.innerHTML = '';
@@ -1027,7 +1138,10 @@
                 const div = document.createElement('div');
                 div.className = 'market-item';
                 div.innerHTML = `
-                    <span class="market-name">${name}</span>
+                    <div class="market-left">
+                        <div class="market-status-dot" id="status-dot-${symbol}"></div>
+                        <span class="market-name">${name}</span>
+                    </div>
                     <label class="toggle-switch">
                         <input type="checkbox" ${activeMarkets[symbol] ? 'checked' : ''} data-symbol="${symbol}">
                         <span class="slider"></span>
@@ -1047,6 +1161,8 @@
                         } else {
                             unsubscribeFromMarket(symbol);
                         }
+                    } else if (!e.target.checked) {
+                        updateMarketStatusDot(symbol, 'inactive');
                     }
                 });
             });
@@ -1061,7 +1177,6 @@
             entry.innerHTML = `<span class="timestamp">[${time}]</span> ${message}`;
             container.insertBefore(entry, container.firstChild);
             
-            // Keep only last 100 entries
             while (container.children.length > 100) {
                 container.removeChild(container.lastChild);
             }
@@ -1094,6 +1209,13 @@
                 ws.onclose = () => {
                     logActivity('WebSocket disconnected', 'error');
                     updateConnectionBadge(false);
+                    
+                    Object.keys(markets).forEach(symbol => {
+                        updateMarketStatusDot(symbol, 'inactive');
+                    });
+                    
+                    stopSessionTimer();
+                    
                     if (isLoggedIn) {
                         setTimeout(() => {
                             logActivity('Attempting to reconnect...', 'info');
@@ -1102,6 +1224,7 @@
                                 connectWebSocket(savedToken)
                                     .then(() => {
                                         logActivity('Reconnected successfully', 'success');
+                                        startSessionTimer();
                                         if (isAutoTrading) {
                                             subscribeToActiveMarkets();
                                         }
@@ -1119,9 +1242,17 @@
         // Handle WebSocket messages
         function handleWebSocketMessage(data, resolve, reject) {
             if (data.error) {
-                // Ignore duplicate subscription errors
                 if (data.error.code !== 'AlreadySubscribed') {
                     logActivity('API Error: ' + data.error.message, 'error');
+                    
+                    if (data.echo_req && data.echo_req.ticks_history) {
+                        const symbol = data.echo_req.ticks_history;
+                        if (pendingSubscriptions.has(symbol)) {
+                            pendingSubscriptions.delete(symbol);
+                            updateMarketStatusDot(symbol, 'failed');
+                            logActivity(`Subscription failed for ${markets[symbol]}: ${data.error.message}`, 'error');
+                        }
+                    }
                 }
                 if (reject && data.error.code !== 'AlreadySubscribed') {
                     reject(new Error(data.error.message));
@@ -1143,7 +1274,6 @@
 
                 logActivity(`Logged in as ${accountInfo.loginid} (${accountInfo.type})`, 'success');
                 
-                // Subscribe to balance updates
                 ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
 
                 if (resolve) resolve();
@@ -1155,23 +1285,37 @@
             }
 
             if (data.msg_type === 'candles' && data.candles) {
-                const symbol = findSymbolBySubscriptionId(data.subscription?.id);
-                if (symbol) {
+                let symbol = null;
+                
+                if (data.echo_req && data.echo_req.ticks_history) {
+                    symbol = data.echo_req.ticks_history;
+                }
+                
+                if (symbol && pendingSubscriptions.has(symbol)) {
+                    pendingSubscriptions.delete(symbol);
+                    marketSubscriptions[symbol] = data.subscription.id;
                     processCandles(symbol, data.candles);
-                    if (!marketSubscriptions[symbol]) {
-                        marketSubscriptions[symbol] = data.subscription.id;
-                    }
+                    updateMarketStatusDot(symbol, 'subscribed');
+                    logActivity(`✓ ${markets[symbol]} subscribed successfully`, 'success');
+                } else if (symbol && marketSubscriptions[symbol]) {
+                    processCandles(symbol, data.candles);
                 }
             }
 
             if (data.msg_type === 'ohlc' && data.ohlc) {
-                const symbol = findSymbolBySubscriptionId(data.subscription?.id);
+                let symbol = null;
+                
+                if (data.echo_req && data.echo_req.ticks_history) {
+                    symbol = data.echo_req.ticks_history;
+                } else if (data.subscription && data.subscription.id) {
+                    symbol = findSymbolBySubscriptionId(data.subscription.id);
+                }
+                
                 if (symbol) {
                     updateCandle(symbol, data.ohlc);
                 }
             }
 
-            // FIX #4: Handle proposal response with request ID verification
             if (data.msg_type === 'proposal' && data.proposal) {
                 const reqId = data.req_id;
                 if (pendingProposals.has(reqId)) {
@@ -1181,12 +1325,10 @@
                 }
             }
 
-            // SOLUTION: Handle buy response with req_id mapping
             if (data.msg_type === 'buy') {
                 if (data.buy.contract_id) {
                     const reqId = data.req_id;
                     
-                    // Retrieve trade context from buyRequestMap using req_id
                     if (buyRequestMap.has(reqId)) {
                         const tradeContext = buyRequestMap.get(reqId);
                         
@@ -1197,10 +1339,8 @@
                             candle_time: tradeContext.candleKey
                         });
                         
-                        // Clean up the map
                         buyRequestMap.delete(reqId);
                         
-                        // Subscribe to contract updates
                         ws.send(JSON.stringify({
                             proposal_open_contract: 1,
                             contract_id: data.buy.contract_id,
@@ -1208,8 +1348,6 @@
                         }));
                         
                         logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
-                    } else {
-                        logActivity(`Warning: Buy response received but no matching request found for req_id ${reqId}`, 'error');
                     }
                 }
             }
@@ -1247,8 +1385,9 @@
                 return;
             }
 
-            document.getElementById('loginBtn').disabled = true;
-            document.getElementById('loginBtn').textContent = 'Connecting...';
+            const loginBtn = document.getElementById('loginBtn');
+            loginBtn.disabled = true;
+            loginBtn.textContent = 'Connecting...';
 
             try {
                 await connectWebSocket(token);
@@ -1264,13 +1403,13 @@
                 logActivity('Login successful', 'success');
             } catch (error) {
                 logActivity('Login failed: ' + error.message, 'error');
-                document.getElementById('loginBtn').disabled = false;
-                document.getElementById('loginBtn').textContent = 'Login';
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Login';
                 updateConnectionBadge(false);
             }
         });
 
-        // Logout - WIPE TOKEN
+        // Logout
         document.getElementById('logoutBtn').addEventListener('click', () => {
             if (isAutoTrading) {
                 stopAutoTrading();
@@ -1285,7 +1424,15 @@
             stopSessionTimer();
             updateConnectionBadge(false);
 
-            // Clear the token from input and sessionStorage
+            Object.keys(markets).forEach(symbol => {
+                updateMarketStatusDot(symbol, 'inactive');
+            });
+
+            marketSubscriptions = {};
+            pendingSubscriptions.clear();
+            initializedMarkets.clear();
+            botStartTime = null;
+
             document.getElementById('apiToken').value = '';
             sessionStorage.removeItem('derivToken');
 
@@ -1293,6 +1440,10 @@
             document.getElementById('accountInfo').classList.add('hidden');
             document.getElementById('timerDisplay').classList.add('hidden');
             document.getElementById('autoTradeBtn').disabled = true;
+
+            const loginBtn = document.getElementById('loginBtn');
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Login';
 
             logActivity('Logged out successfully - Token cleared', 'success');
         });
@@ -1321,12 +1472,19 @@
 
         // Subscribe to market
         function subscribeToMarket(symbol) {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                logActivity('Cannot subscribe: WebSocket not connected', 'error');
+                return;
+            }
 
             if (marketSubscriptions[symbol]) {
                 logActivity(`Already monitoring ${markets[symbol]}`, 'info');
+                updateMarketStatusDot(symbol, 'subscribed');
                 return;
             }
+
+            updateMarketStatusDot(symbol, 'subscribing');
+            pendingSubscriptions.set(symbol, Date.now());
 
             const subscribeMsg = {
                 ticks_history: symbol,
@@ -1341,6 +1499,14 @@
 
             ws.send(JSON.stringify(subscribeMsg));
             logActivity(`Subscribing to ${markets[symbol]}...`);
+
+            setTimeout(() => {
+                if (pendingSubscriptions.has(symbol) && !marketSubscriptions[symbol]) {
+                    pendingSubscriptions.delete(symbol);
+                    updateMarketStatusDot(symbol, 'failed');
+                    logActivity(`Subscription timeout for ${markets[symbol]}`, 'error');
+                }
+            }, 10000);
         }
 
         function unsubscribeFromMarket(symbol) {
@@ -1351,6 +1517,8 @@
                 delete marketSubscriptions[symbol];
                 candleData[symbol] = [];
                 tradedCandles[symbol].clear();
+                initializedMarkets.delete(symbol);
+                updateMarketStatusDot(symbol, 'inactive');
                 logActivity(`Unsubscribed from ${markets[symbol]}`);
             }
         }
@@ -1380,10 +1548,14 @@
                 low: parseFloat(c.low),
                 close: parseFloat(c.close)
             }));
-            logActivity(`Loaded ${candles.length} candles for ${markets[symbol]}`, 'success');
+            
+            // Mark this market as initialized
+            initializedMarkets.add(symbol);
+            
+            logActivity(`Loaded ${candles.length} candles for ${markets[symbol]} - Ready for signals`, 'success');
         }
 
-        // FIX #2: Only check signals when candle closes (new candle starts)
+        // Update candle
         function updateCandle(symbol, ohlc) {
             if (!candleData[symbol]) candleData[symbol] = [];
 
@@ -1398,18 +1570,21 @@
             const lastCandle = candleData[symbol][candleData[symbol].length - 1];
             
             if (lastCandle && lastCandle.time === newCandle.time) {
-                // Update current candle - DO NOT CHECK FOR SIGNALS
+                // Update the current (ongoing) candle
                 candleData[symbol][candleData[symbol].length - 1] = newCandle;
+
+                // ONLY check for signals when the current candle updates (live ticks)
+                if (isAutoTrading && 
+                    initializedMarkets.has(symbol) && 
+                    candleData[symbol].length >= 52) {
+                    
+                    checkForSignals(symbol);
+                }
             } else {
-                // NEW CANDLE STARTED - Previous candle has closed
+                // NEW CANDLE STARTED - just add it, NO signal check here
                 candleData[symbol].push(newCandle);
                 if (candleData[symbol].length > 100) {
                     candleData[symbol].shift();
-                }
-                
-                // FIX #2: Only check for signals when a NEW candle starts (previous closed)
-                if (isAutoTrading && candleData[symbol].length >= 52) {
-                    checkForSignals(symbol);
                 }
             }
         }
@@ -1428,25 +1603,26 @@
             return ema;
         }
 
-        // FIX #1 & #2: Check for trading signals with one-trade-per-candle guard
+        // Check for trading signals
         function checkForSignals(symbol) {
             if (candleData[symbol].length < 52) return;
 
             const candles = candleData[symbol];
-            // FIX #2: Use the CLOSED candle (second to last)
             const lastCandle = candles[candles.length - 2];
             const prevCandle = candles[candles.length - 3];
 
             if (!lastCandle || !prevCandle) return;
 
-            // FIX #1: Check if we've already traded on this candle
             const candleKey = `${lastCandle.time}`;
             if (tradedCandles[symbol].has(candleKey)) {
-                return; // Already traded on this candle, skip
+                return;
             }
 
             const trendFilter = document.getElementById('trendFilter').checked;
             const zeroClosingFilter = document.getElementById('zeroClosingFilter').checked;
+            const ignoreWickPercent = document.getElementById('ignoreWickPercent').checked;
+            const ignoreHeight = document.getElementById('ignoreHeight').checked;
+            const ignoreMatchDiff = document.getElementById('ignoreMatchDiff').checked;
             const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value) / 100;
             const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value) / 100;
 
@@ -1455,134 +1631,156 @@
                 ema50 = calculateEMA(candles.slice(0, -1), 50);
             }
 
-            // Check for Tweezers Bottom (BUY)
-            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, minLowerWickBuy);
+            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, minLowerWickBuy, ignoreWickPercent, ignoreHeight, ignoreMatchDiff);
             if (buySignal) {
                 if (trendFilter && ema50) {
                     if (lastCandle.close > ema50) {
-                        addSignal(symbol, 'Tweezers Bottom BUY');
+                        addSignal(symbol, 'Tweezers Bottom BUY', 'buy');
                         executeTrade(symbol, 'CALL', candleKey);
                     }
                 } else {
-                    addSignal(symbol, 'Tweezers Bottom BUY');
+                    addSignal(symbol, 'Tweezers Bottom BUY', 'buy');
                     executeTrade(symbol, 'CALL', candleKey);
                 }
             }
 
-            // Check for Tweezers Top (SELL)
-            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, minUpperWickSell);
+            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, minUpperWickSell, ignoreWickPercent, ignoreHeight, ignoreMatchDiff);
             if (sellSignal) {
                 if (trendFilter && ema50) {
                     if (lastCandle.close < ema50) {
-                        addSignal(symbol, 'Tweezers Top SELL');
+                        addSignal(symbol, 'Tweezers Top SELL', 'sell');
                         executeTrade(symbol, 'PUT', candleKey);
                     }
                 } else {
-                    addSignal(symbol, 'Tweezers Top SELL');
+                    addSignal(symbol, 'Tweezers Top SELL', 'sell');
                     executeTrade(symbol, 'PUT', candleKey);
                 }
             }
         }
 
-        // Check Tweezers Bottom pattern
-        function checkTweezersBottom(candle1, candle2, zeroClosing, minWickPercent) {
-            // First candle: Red candle
+        // Check Tweezers Bottom pattern - FIXED LOGIC
+        function checkTweezersBottom(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff) {
             const isCandle1Red = candle1.close < candle1.open;
             if (!isCandle1Red) return false;
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
+            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
 
-            // Check first candle lower wick (using user-defined percentage)
+            // Check LOWER wick percentage for candle 1 (ALWAYS CHECKED - this is the dominant wick for BUY)
             if (candle1LowerWick / candle1Range < minWickPercent) return false;
 
-            // Check first candle upper wick (max 20% of range)
-            if (zeroClosing) {
-                if (candle1UpperWick / candle1Range > 0.01) return false;
-            } else {
-                if (candle1UpperWick / candle1Range > 0.2) return false;
+            // Check UPPER wick for candle 1 (ONLY checked when ignoreWickPercent is OFF)
+            if (!ignoreWickPercent) {
+                if (zeroClosing) {
+                    if (candle1UpperWick / candle1Range > 0.01) return false;
+                } else {
+                    if (candle1UpperWick / candle1Range > 0.2) return false;
+                }
             }
 
-            // Second candle: Green candle
             const isCandle2Green = candle2.close > candle2.open;
             if (!isCandle2Green) return false;
 
             const candle2Range = candle2.high - candle2.low;
             if (candle2Range === 0) return false;
 
+            const candle2Body = Math.abs(candle2.close - candle2.open);
             const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
             const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
 
-            // Check second candle lower wick (using user-defined percentage)
+            // Check LOWER wick percentage for candle 2 (ALWAYS CHECKED - this is the dominant wick for BUY)
             if (candle2LowerWick / candle2Range < minWickPercent) return false;
 
-            // Check second candle upper wick (max 20% of range)
-            if (zeroClosing) {
-                if (candle2UpperWick / candle2Range > 0.01) return false;
-            } else {
-                if (candle2UpperWick / candle2Range > 0.2) return false;
+            // Check UPPER wick for candle 2 (ONLY checked when ignoreWickPercent is OFF)
+            if (!ignoreWickPercent) {
+                if (zeroClosing) {
+                    if (candle2UpperWick / candle2Range > 0.01) return false;
+                } else {
+                    if (candle2UpperWick / candle2Range > 0.2) return false;
+                }
             }
 
-            // Check if lows match within 0.3%
-            const lowDiff = Math.abs(candle1.low - candle2.low) / candle1.low;
-            if (lowDiff > 0.003) return false;
+            // Check low match difference (unless ignoreMatchDiff is enabled)
+            if (!ignoreMatchDiff) {
+                const lowDiff = Math.abs(candle1.low - candle2.low) / candle1.low;
+                if (lowDiff > 0.003) return false;
+            }
 
-            // Check if second candle closes above or equal to first candle high
+            // Check height requirement (unless ignoreHeight is enabled)
+            if (!ignoreHeight) {
+                if (candle2Body < candle1Body) return false;
+            } else {
+                if (candle2Body < candle1Body * 0.5) return false;
+            }
+
             if (candle2.close < candle1.high) return false;
 
             return true;
         }
 
-        // Check Tweezers Top pattern
-        function checkTweezersTop(candle1, candle2, zeroClosing, minWickPercent) {
-            // First candle: Green candle
+        // Check Tweezers Top pattern - FIXED LOGIC
+        function checkTweezersTop(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff) {
             const isCandle1Green = candle1.close > candle1.open;
             if (!isCandle1Green) return false;
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
+            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
 
-            // Check first candle upper wick (using user-defined percentage)
+            // Check UPPER wick percentage for candle 1 (ALWAYS CHECKED - this is the dominant wick for SELL)
             if (candle1UpperWick / candle1Range < minWickPercent) return false;
 
-            // Check first candle lower wick (max 20% of range)
-            if (zeroClosing) {
-                if (candle1LowerWick / candle1Range > 0.01) return false;
-            } else {
-                if (candle1LowerWick / candle1Range > 0.2) return false;
+            // Check LOWER wick for candle 1 (ONLY checked when ignoreWickPercent is OFF)
+            if (!ignoreWickPercent) {
+                if (zeroClosing) {
+                    if (candle1LowerWick / candle1Range > 0.01) return false;
+                } else {
+                    if (candle1LowerWick / candle1Range > 0.2) return false;
+                }
             }
 
-            // Second candle: Red candle
             const isCandle2Red = candle2.close < candle2.open;
             if (!isCandle2Red) return false;
 
             const candle2Range = candle2.high - candle2.low;
             if (candle2Range === 0) return false;
 
+            const candle2Body = Math.abs(candle2.close - candle2.open);
             const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
             const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
 
-            // Check second candle upper wick (using user-defined percentage)
+            // Check UPPER wick percentage for candle 2 (ALWAYS CHECKED - this is the dominant wick for SELL)
             if (candle2UpperWick / candle2Range < minWickPercent) return false;
 
-            // Check second candle lower wick (max 20% of range)
-            if (zeroClosing) {
-                if (candle2LowerWick / candle2Range > 0.01) return false;
-            } else {
-                if (candle2LowerWick / candle2Range > 0.2) return false;
+            // Check LOWER wick for candle 2 (ONLY checked when ignoreWickPercent is OFF)
+            if (!ignoreWickPercent) {
+                if (zeroClosing) {
+                    if (candle2LowerWick / candle2Range > 0.01) return false;
+                } else {
+                    if (candle2LowerWick / candle2Range > 0.2) return false;
+                }
             }
 
-            // Check if highs match within 0.3%
-            const highDiff = Math.abs(candle1.high - candle2.high) / candle1.high;
-            if (highDiff > 0.003) return false;
+            // Check high match difference (unless ignoreMatchDiff is enabled)
+            if (!ignoreMatchDiff) {
+                const highDiff = Math.abs(candle1.high - candle2.high) / candle1.high;
+                if (highDiff > 0.003) return false;
+            }
 
-            // Check if second candle closes below or equal to first candle low
+            // Check height requirement (unless ignoreHeight is enabled)
+            if (!ignoreHeight) {
+                if (candle2Body < candle1Body) return false;
+            } else {
+                if (candle2Body < candle1Body * 0.5) return false;
+            }
+
             if (candle2.close > candle1.low) return false;
 
             return true;
@@ -1590,10 +1788,9 @@
 
         // Add signal to monitor
         let signalCounter = 0;
-        function addSignal(symbol, pattern) {
+        function addSignal(symbol, pattern, signalType) {
             const container = document.getElementById('signalsContainer');
             
-            // Clear "Waiting for bot activation" message on first signal
             if (isFirstSignal) {
                 container.innerHTML = '';
                 isFirstSignal = false;
@@ -1603,13 +1800,12 @@
             
             const time = new Date().toLocaleTimeString();
             const signalDiv = document.createElement('div');
-            signalDiv.className = 'signal-item';
+            signalDiv.className = `signal-item ${signalType}`;
             signalDiv.id = signalId;
             signalDiv.innerHTML = `<div class="signal-text">[${time}] ${markets[symbol]} - ${pattern}</div>`;
             
             container.insertBefore(signalDiv, container.firstChild);
             
-            // Keep only last 50 signals
             while (container.children.length > 50) {
                 container.removeChild(container.lastChild);
             }
@@ -1617,14 +1813,7 @@
             return signalId;
         }
 
-        function updateSignalStatus(signalId, status) {
-            const signal = document.getElementById(signalId);
-            if (signal) {
-                signal.className = `signal-item ${status}`;
-            }
-        }
-
-        // SOLUTION: Execute trade with req_id mapping method
+        // Execute trade
         async function executeTrade(symbol, type, candleKey) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 logActivity('Cannot execute trade: WebSocket not connected', 'error');
@@ -1635,7 +1824,6 @@
             const durationType = document.getElementById('durationType').value;
             const durationValue = parseInt(document.getElementById('durationValue').value);
 
-            // Generate unique request ID for proposal
             const proposalReqId = ++requestIdCounter;
 
             const proposal = {
@@ -1653,7 +1841,6 @@
             try {
                 ws.send(JSON.stringify(proposal));
                 
-                // Wait for proposal response with matching request ID
                 const proposalResponse = await new Promise((resolve, reject) => {
                     const timeout = setTimeout(() => {
                         pendingProposals.delete(proposalReqId);
@@ -1663,17 +1850,14 @@
                     pendingProposals.set(proposalReqId, { resolve, reject, timeout });
                 });
 
-                // Clear timeout
                 if (pendingProposals.has(proposalReqId)) {
                     clearTimeout(pendingProposals.get(proposalReqId).timeout);
                     pendingProposals.delete(proposalReqId);
                 }
 
                 if (proposalResponse.proposal) {
-                    // Generate unique request ID for buy
                     const buyReqId = ++requestIdCounter;
                     
-                    // SOLUTION: Store trade context in buyRequestMap with req_id
                     buyRequestMap.set(buyReqId, {
                         symbol: symbol,
                         type: type,
@@ -1681,14 +1865,12 @@
                         candleKey: candleKey
                     });
                     
-                    // Buy the contract with req_id (NO custom parameters in buy call)
                     ws.send(JSON.stringify({
                         buy: proposalResponse.proposal.id,
                         price: stake,
-                        req_id: buyReqId  // Only send req_id, no custom parameters
+                        req_id: buyReqId
                     }));
 
-                    // FIX #1: Mark this candle as traded
                     tradedCandles[symbol].add(candleKey);
 
                     logActivity(`Trade executed: ${type} on ${markets[symbol]} - Stake: ${stake}`, 'success');
@@ -1732,10 +1914,6 @@
 
                 logActivity(`Trade closed: ${trade.market} - ${trade.type} - P/L: ${trade.result}`, isWin ? 'success' : 'error');
 
-                // Update signal monitor
-                addSignal(contract.underlying, `${contract.contract_type} ${isWin ? 'WIN' : 'LOSS'}`);
-
-                // Check stop loss and take profit
                 const stopLoss = parseFloat(document.getElementById('stopLoss').value);
                 const takeProfit = parseFloat(document.getElementById('takeProfit').value);
 
@@ -1749,12 +1927,11 @@
                     stopAutoTrading();
                 }
 
-                // Clean up pending trades
                 if (pendingTrades.has(contract.contract_id)) {
                     pendingTrades.delete(contract.contract_id);
                 }
             }
-         }
+        }
 
         // Update statistics
         function updateStats() {
@@ -1800,8 +1977,9 @@
 
             isAutoTrading = true;
             isFirstSignal = true;
+            botStartTime = Date.now();
+            initializedMarkets.clear();
             
-            // FIX #1: Clear traded candles tracking when starting
             Object.keys(tradedCandles).forEach(symbol => {
                 tradedCandles[symbol].clear();
             });
@@ -1809,30 +1987,27 @@
             document.getElementById('autoTradeBtn').textContent = 'Stop Auto Trade';
             document.getElementById('autoTradeBtn').className = 'btn btn-danger';
             
-            // Update status indicator
             const statusText = document.getElementById('statusText');
             const statusDot = document.getElementById('statusDot');
             statusText.textContent = 'Bot Active - Analyzing Markets';
             statusText.className = 'status-text active';
             statusDot.className = 'pulse-dot active';
 
-            // Clear signal container
             const container = document.getElementById('signalsContainer');
-            container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
+            container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Loading market data and waiting for fresh candles...</div></div>';
 
-            logActivity('Auto trading started', 'success');
+            logActivity('Auto trading started - Waiting for fresh candles before trading', 'success');
 
-            // Subscribe to all active markets
             subscribeToActiveMarkets();
         }
 
         // Stop auto trading
         function stopAutoTrading() {
             isAutoTrading = false;
+            botStartTime = null;
             document.getElementById('autoTradeBtn').textContent = 'Start Auto Trade';
             document.getElementById('autoTradeBtn').className = 'btn btn-success';
             
-            // Update status indicator
             const statusText = document.getElementById('statusText');
             const statusDot = document.getElementById('statusDot');
             statusText.textContent = 'Bot Inactive';
@@ -1841,10 +2016,8 @@
 
             logActivity('Auto trading stopped', 'error');
 
-            // Unsubscribe from all markets
             unsubscribeFromAllMarkets();
 
-            // Reset signal monitor
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Waiting for bot activation...</div></div>';
         }
@@ -1881,6 +2054,21 @@
             saveSettings();
         });
 
+        document.getElementById('ignoreWickPercent').addEventListener('change', () => {
+            logActivity(`Ignore % filter ${document.getElementById('ignoreWickPercent').checked ? 'enabled' : 'disabled'}`);
+            saveSettings();
+        });
+
+        document.getElementById('ignoreHeight').addEventListener('change', () => {
+            logActivity(`Ignore height filter ${document.getElementById('ignoreHeight').checked ? 'enabled' : 'disabled'}`);
+            saveSettings();
+        });
+
+        document.getElementById('ignoreMatchDiff').addEventListener('change', () => {
+            logActivity(`Ignore match diff filter ${document.getElementById('ignoreMatchDiff').checked ? 'enabled' : 'disabled'}`);
+            saveSettings();
+        });
+
         document.getElementById('stakeAmount').addEventListener('change', () => {
             logActivity(`Stake amount updated to ${document.getElementById('stakeAmount').value}`);
             saveSettings();
@@ -1913,25 +2101,6 @@
 
         document.getElementById('minUpperWickSell').addEventListener('change', () => {
             logActivity(`Min upper wick (Sell) updated to ${document.getElementById('minUpperWickSell').value}%`);
-            saveSettings();
-        });
-
-        // Initialize app
-        loadSettings();
-        renderMarkets();
-        logActivity('System initialized. Please login to continue.', 'success');
-
-        // Auto-reconnect on page refresh
-        window.addEventListener('load', () => {
-            const savedToken = sessionStorage.getItem('derivToken');
-            if (savedToken && !isLoggedIn) {
-                document.getElementById('apiToken').value = savedToken;
-                logActivity('Auto-reconnect: Token found in storage', 'info');
-            }
-        });
-
-        // Prevent data loss on page unload
-        window.addEventListener('beforeunload', () => {
             saveSettings();
         });
 
@@ -1991,124 +2160,16 @@
         document.getElementById('minLowerWickBuy').addEventListener('blur', validateInputs);
         document.getElementById('minUpperWickSell').addEventListener('blur', validateInputs);
 
-        // Integrity check function
-        function performIntegrityCheck() {
-            logActivity('Performing system integrity check...', 'info');
-
-            // Check WebSocket connection
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                if (isLoggedIn) {
-                    logActivity('WebSocket disconnected. Attempting to reconnect...', 'error');
-                    const token = sessionStorage.getItem('derivToken');
-                    if (token) {
-                        connectWebSocket(token).catch(err => {
-                            logActivity('Reconnection failed: ' + err.message, 'error');
-                        });
-                    }
-                }
-            } else {
-                logActivity('WebSocket connection: OK', 'success');
-            }
-
-            // Check if any markets are active
-            const activeMarketCount = Object.values(activeMarkets).filter(v => v).length;
-            if (activeMarketCount === 0 && isAutoTrading) {
-                logActivity('No active markets selected. Please enable at least one market.', 'error');
-            } else if (activeMarketCount > 0) {
-                logActivity(`Active markets: ${activeMarketCount}`, 'success');
-            }
-
-            // Check subscriptions
-            const subscriptionCount = Object.keys(marketSubscriptions).length;
-            if (isAutoTrading && subscriptionCount === 0) {
-                logActivity('No market subscriptions active. Resubscribing...', 'error');
-                subscribeToActiveMarkets();
-            } else if (isAutoTrading) {
-                logActivity(`Market subscriptions: ${subscriptionCount}`, 'success');
-            }
-
-            // Check account balance
-            if (isLoggedIn && accountInfo.balance !== undefined) {
-                const balance = parseFloat(accountInfo.balance);
-                const stake = parseFloat(document.getElementById('stakeAmount').value);
-                if (balance < stake) {
-                    logActivity(`Insufficient balance. Balance: ${balance}, Stake: ${stake}`, 'error');
-                } else {
-                    logActivity(`Account balance: ${balance} ${accountInfo.currency}`, 'success');
-                }
-            }
-
-            // Validate settings
-            if (!validateInputs()) {
-                logActivity('Input validation failed. Please check your settings.', 'error');
-            } else {
-                logActivity('All input settings validated successfully', 'success');
-            }
-
-            logActivity('Integrity check completed', 'success');
-        }
-
-        // Run integrity check every 30 seconds
-        setInterval(() => {
-            if (isLoggedIn) {
-                performIntegrityCheck();
-            }
-        }, 30000);
-
-        // Manual integrity check button (hidden, but can be triggered via console)
-        window.runIntegrityCheck = performIntegrityCheck;
-
-        // Add keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            // Ctrl/Cmd + S to save settings
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                e.preventDefault();
-                saveSettings();
-                logActivity('Settings saved manually', 'success');
-            }
-
-            // Ctrl/Cmd + Space to toggle auto trading
-            if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
-                e.preventDefault();
-                if (isLoggedIn && document.getElementById('autoTradeBtn').disabled === false) {
-                    if (isAutoTrading) {
-                        stopAutoTrading();
-                    } else {
-                        startAutoTrading();
-                    }
-                }
-            }
-
-            // Ctrl/Cmd + I to run integrity check
-            if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
-                e.preventDefault();
-                performIntegrityCheck();
-            }
-        });
-
-        // Add visual feedback for connection status
-        function updateConnectionStatus() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                document.body.style.borderTop = '3px solid #ff4757';
-            } else {
-                document.body.style.borderTop = '3px solid #2ecc71';
-            }
-        }
-
-        setInterval(updateConnectionStatus, 1000);
-
-        // FIX #3: Monitor WebSocket health with proper heartbeat
+        // Monitor WebSocket health
         function checkWebSocketHealth() {
             if (isLoggedIn && ws && ws.readyState === WebSocket.OPEN) {
                 const timeSinceLastMessage = Date.now() - lastHeartbeat;
                 
-                // If no message received in 30 seconds, ping the server
                 if (timeSinceLastMessage > 30000) {
                     ws.send(JSON.stringify({ ping: 1 }));
                     logActivity('Sending heartbeat ping...', 'info');
                 }
 
-                // If no message received in 60 seconds, reconnect
                 if (timeSinceLastMessage > 60000) {
                     logActivity('No response from server. Reconnecting...', 'error');
                     const token = sessionStorage.getItem('derivToken');
@@ -2124,19 +2185,7 @@
 
         setInterval(checkWebSocketHealth, 10000);
 
-        // Handle visibility change (tab switching)
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                logActivity('Tab hidden. Bot continues running in background.', 'info');
-            } else {
-                logActivity('Tab visible. Checking connection status...', 'info');
-                if (isLoggedIn) {
-                    performIntegrityCheck();
-                }
-            }
-        });
-
-        // Add error boundary for unexpected errors
+        // Error boundaries
         window.addEventListener('error', (e) => {
             logActivity(`Unexpected error: ${e.message}`, 'error');
             console.error('Error details:', e);
@@ -2147,12 +2196,7 @@
             console.error('Promise rejection details:', e);
         });
 
-        // Log system information on startup
-        logActivity(`Browser: ${navigator.userAgent}`, 'info');
-        logActivity(`Screen resolution: ${window.screen.width}x${window.screen.height}`, 'info');
-        logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
-
-        // Function to export trade history
+        // Export trade history function
         window.exportTradeHistory = function() {
             if (tradeHistory.length === 0) {
                 logActivity('No trade history to export', 'error');
@@ -2182,7 +2226,7 @@
             logActivity('Trade history exported successfully', 'success');
         };
 
-        // Function to reset all settings
+        // Reset all settings function
         window.resetAllSettings = function() {
             if (confirm('Are you sure you want to reset all settings to default? This will clear all saved data including trade history.')) {
                 sessionStorage.clear();
@@ -2190,7 +2234,7 @@
             }
         };
 
-        // Add tooltips for better UX (accessible via data attributes)
+        // Tooltips
         const tooltips = {
             'stakeAmount': 'Amount to stake per trade (minimum 0.35)',
             'stopLoss': 'Stop trading when total loss reaches this amount',
@@ -2200,7 +2244,10 @@
             'minLowerWickBuy': 'Minimum lower wick percentage required for Buy signal (0-100%)',
             'minUpperWickSell': 'Minimum upper wick percentage required for Sell signal (0-100%)',
             'trendFilter': 'Only trade in the direction of 50 EMA trend',
-            'zeroClosingFilter': 'Only trade on perfect candle closes (no wicks)'
+            'zeroClosingFilter': 'Only trade on perfect candle closes (no opposite wicks)',
+            'ignoreWickPercent': 'Ignore the opposite wick percentage requirement (upper for buy, lower for sell)',
+            'ignoreHeight': 'Allow confirmation candle to be shorter (min 50% of first candle body)',
+            'ignoreMatchDiff': 'Ignore the low/high match difference requirement'
         };
 
         Object.entries(tooltips).forEach(([id, text]) => {
@@ -2210,54 +2257,38 @@
             }
         });
 
-        // Performance monitoring
-        let performanceMetrics = {
-            messagesReceived: 0,
-            messagesSent: 0,
-            tradesExecuted: 0,
-            signalsDetected: 0
-        };
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveSettings();
+                logActivity('Settings saved manually', 'success');
+            }
 
-        window.getPerformanceMetrics = function() {
-            console.log('Performance Metrics:', performanceMetrics);
-            return performanceMetrics;
-        };
+            if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
+                e.preventDefault();
+                if (isLoggedIn && document.getElementById('autoTradeBtn').disabled === false) {
+                    if (isAutoTrading) {
+                        stopAutoTrading();
+                    } else {
+                        startAutoTrading();
+                    }
+                }
+            }
+        });
 
-        // Log initial startup complete
-        setTimeout(() => {
-            logActivity('Ben Sniper Bot initialized successfully!', 'success');
-            logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
-            logActivity('Tip: Press Ctrl+I to run integrity check', 'info');
-            logActivity('Tip: Use console command exportTradeHistory() to export trades', 'info');
-        }, 1000);
-
-        // Add responsive font sizing
-        function adjustFontSizes() {
-            const width = window.innerWidth;
-            const root = document.documentElement;
-            
-            if (width < 480) {
-                root.style.fontSize = '14px';
-            } else if (width < 768) {
-                root.style.fontSize = '15px';
+        // Visual connection status
+        function updateConnectionStatus() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                document.body.style.borderTop = '3px solid #ff4757';
             } else {
-                root.style.fontSize = '16px';
+                document.body.style.borderTop = '3px solid #2ecc71';
             }
         }
 
-        window.addEventListener('resize', adjustFontSizes);
-        adjustFontSizes();
+        setInterval(updateConnectionStatus, 1000);
 
-        // Check for updates notification (placeholder for future feature)
-        function checkForUpdates() {
-            // This would normally call an API to check for new versions
-            logActivity('System is up to date', 'success');
-        }
-
-        // Run update check on startup
-        setTimeout(checkForUpdates, 5000);
-
-        // Add network status monitoring
+        // Network status monitoring
         window.addEventListener('online', () => {
             logActivity('Network connection restored', 'success');
             updateConnectionBadge(true);
@@ -2276,13 +2307,53 @@
             updateConnectionBadge(false);
         });
 
-        // Final integrity check after initialization
-        setTimeout(() => {
-            if (isLoggedIn) {
-                performIntegrityCheck();
+        // Responsive font sizing
+        function adjustFontSizes() {
+            const width = window.innerWidth;
+            const root = document.documentElement;
+            
+            if (width < 480) {
+                root.style.fontSize = '14px';
+            } else if (width < 768) {
+                root.style.fontSize = '15px';
+            } else {
+                root.style.fontSize = '16px';
             }
-        }, 3000);
+        }
+
+        window.addEventListener('resize', adjustFontSizes);
+        adjustFontSizes();
+
+        // Initialize app
+        loadSettings();
+        renderMarkets();
+        logActivity('System initialized. Please login to continue.', 'success');
+
+        // Auto-reconnect on page refresh
+        window.addEventListener('load', () => {
+            const savedToken = sessionStorage.getItem('derivToken');
+            if (savedToken && !isLoggedIn) {
+                document.getElementById('apiToken').value = savedToken;
+                logActivity('Auto-reconnect: Token found in storage', 'info');
+            }
+        });
+
+        // Prevent data loss on page unload
+        window.addEventListener('beforeunload', () => {
+            saveSettings();
+        });
+
+        // Log system information
+        logActivity(`Browser: ${navigator.userAgent}`, 'info');
+        logActivity(`Screen resolution: ${window.screen.width}x${window.screen.height}`, 'info');
+        logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
+
+        // Startup complete
+        setTimeout(() => {
+            logActivity('Ben Sniper Bot initialized successfully!', 'success');
+            logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
+            logActivity('Tip: Use console command exportTradeHistory() to export trades', 'info');
+        }, 1000);
     </script>
 </body>
 </html>
-                
