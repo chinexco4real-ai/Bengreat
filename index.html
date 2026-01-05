@@ -164,6 +164,16 @@
             box-shadow: 0 4px 15px rgba(46, 204, 113, 0.4);
         }
 
+        .btn-warning {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);
+        }
+
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -687,6 +697,62 @@
             color: #2ecc71;
         }
 
+        .log-entry.warning {
+            color: #f39c12;
+        }
+
+        .reverse-mode-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            background: rgba(243, 156, 18, 0.2);
+            border: 1px solid #f39c12;
+            border-radius: 4px;
+            color: #f39c12;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .conflict-alert {
+            background: rgba(243, 156, 18, 0.15);
+            border: 2px solid #f39c12;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .conflict-alert.active {
+            display: block;
+            animation: conflict-pulse 2s infinite;
+        }
+
+        @keyframes conflict-pulse {
+            0%, 100% {
+                background: rgba(243, 156, 18, 0.15);
+            }
+            50% {
+                background: rgba(243, 156, 18, 0.25);
+            }
+        }
+
+        .conflict-title {
+            color: #f39c12;
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .conflict-list {
+            color: #e0e0e0;
+            font-size: 12px;
+            line-height: 1.6;
+            margin-left: 24px;
+        }
+
         @media (max-width: 768px) {
             .main-grid {
                 grid-template-columns: 1fr;
@@ -827,7 +893,7 @@
 
         <div class="signal-monitor">
             <div class="monitor-header">
-                <h2 class="panel-title">📊 Signal Monitor</h2>
+                <h2 class="panel-title">📊 Signal Monitor<span id="reverseModeIndicator" class="reverse-mode-badge hidden">REVERSE MODE</span></h2>
                 <div class="status-indicator">
                     <div class="pulse-dot" id="statusDot"></div>
                     <span class="status-text" id="statusText">Bot Inactive</span>
@@ -851,14 +917,14 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">Trend Filter (50 EMA)</span>
+                        <span class="filter-label">Trend Filter (EMA)</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="trendFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
                     <div class="filter-item">
-                        <span class="filter-label">Zero Closing Filter</span>
+                        <span class="filter-label">Zero Closing Filter (Perfect 0)</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="zeroClosingFilter">
                             <span class="slider"></span>
@@ -871,6 +937,21 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Length Filter</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="lengthFilter">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Conflict Alert Box -->
+                <div class="conflict-alert" id="conflictAlert">
+                    <div class="conflict-title">
+                        ⚠️ Filter Conflict Detected
+                    </div>
+                    <div class="conflict-list" id="conflictList"></div>
                 </div>
 
                 <h2 class="panel-title" style="margin-top: 20px;">⚙️ Trade Settings</h2>
@@ -886,6 +967,10 @@
                     <div class="input-group">
                         <label class="input-label">Take Profit</label>
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">EMA Period</label>
+                        <input type="number" class="input-field" id="emaPeriod" value="50" min="5" max="200" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
@@ -927,6 +1012,7 @@
 
                 <div class="control-buttons">
                     <button class="btn btn-success" id="autoTradeBtn" disabled>Start Auto Trade</button>
+                    <button class="btn btn-warning" id="reverseModeBtn" disabled>Reverse Mode: OFF</button>
                 </div>
             </div>
         </div>
@@ -1014,6 +1100,7 @@
         let ws = null;
         let isLoggedIn = false;
         let isAutoTrading = false;
+        let isReverseMode = false;
         let activation_time = 0;
         let activeMarkets = {};
         let marketSubscriptions = {};
@@ -1038,10 +1125,13 @@
         let requestIdCounter = 0;
         let pendingProposals = new Map();
         
-        // NEW: Time synchronization variables
+        // Time synchronization variables
         let serverTimeOffset = 0;
         let isTimeSynced = false;
         let candleWatchdogTimer = null;
+
+        // EMA cache for optimization
+        let emaCache = {};
 
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
@@ -1050,6 +1140,7 @@
             currentOHLC[symbol] = undefined;
             currentMinute[symbol] = undefined;
             tradedCandles[symbol] = new Set();
+            emaCache[symbol] = {};
         });
 
         // Update connection badge
@@ -1079,6 +1170,39 @@
             }
         }
 
+        // Update reverse mode indicator
+        function updateReverseModeIndicator() {
+            const indicator = document.getElementById('reverseModeIndicator');
+            if (isReverseMode) {
+                indicator.classList.remove('hidden');
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        // Check for filter conflicts
+        function checkFilterConflicts() {
+            const ignoreHeight = document.getElementById('ignoreHeightFilter').checked;
+            const lengthFilter = document.getElementById('lengthFilter').checked;
+            const conflictAlert = document.getElementById('conflictAlert');
+            const conflictList = document.getElementById('conflictList');
+            
+            const conflicts = [];
+            
+            // Check for Ignore Height + Length Filter conflict
+            if (ignoreHeight && lengthFilter) {
+                conflicts.push('• "Ignore Height" and "Length Filter" are both enabled. These filters contradict each other:<br>&nbsp;&nbsp;- Ignore Height: Allows confirmation candle to be any height<br>&nbsp;&nbsp;- Length Filter: Restricts confirmation candle height to be ≤ first candle<br>&nbsp;&nbsp;→ Length Filter will be ignored when Ignore Height is active');
+            }
+            
+            if (conflicts.length > 0) {
+                conflictList.innerHTML = conflicts.join('<br><br>');
+                conflictAlert.classList.add('active');
+                logActivity('Filter conflict detected! Check the warning box in Filters section', 'warning');
+            } else {
+                conflictAlert.classList.remove('active');
+            }
+        }
+
         // Update candle counter
         function updateCandleCounter() {
             if (!isAutoTrading) {
@@ -1087,7 +1211,8 @@
             }
 
             const trendFilter = document.getElementById('trendFilter').checked;
-            const requiredCandles = trendFilter ? 52 : 3;
+            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
+            const requiredCandles = trendFilter ? (emaPeriod + 2) : 3;
             
             let minCandles = Infinity;
             let activeCount = 0;
@@ -1145,9 +1270,12 @@
             const savedTrendFilter = sessionStorage.getItem('trendFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
+            const savedLengthFilter = sessionStorage.getItem('lengthFilter');
+            const savedReverseMode = sessionStorage.getItem('reverseMode');
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
+            const savedEmaPeriod = sessionStorage.getItem('emaPeriod');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
@@ -1179,6 +1307,16 @@
                 document.getElementById('ignoreHeightFilter').checked = savedIgnoreHeightFilter === 'true';
             }
 
+            if (savedLengthFilter) {
+                document.getElementById('lengthFilter').checked = savedLengthFilter === 'true';
+            }
+
+            if (savedReverseMode) {
+                isReverseMode = savedReverseMode === 'true';
+                updateReverseModeButton();
+                updateReverseModeIndicator();
+            }
+
             if (savedStake) {
                 document.getElementById('stakeAmount').value = savedStake;
             }
@@ -1189,6 +1327,10 @@
 
             if (savedTakeProfit) {
                 document.getElementById('takeProfit').value = savedTakeProfit;
+            }
+
+            if (savedEmaPeriod) {
+                document.getElementById('emaPeriod').value = savedEmaPeriod;
             }
 
             if (savedDurationType) {
@@ -1232,6 +1374,9 @@
                 tradeStats = JSON.parse(savedStats);
                 updateStats();
             }
+
+            // Check for conflicts after loading
+            checkFilterConflicts();
         }
 
         // Save settings
@@ -1241,9 +1386,12 @@
             sessionStorage.setItem('trendFilter', document.getElementById('trendFilter').checked);
             sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
             sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
+            sessionStorage.setItem('lengthFilter', document.getElementById('lengthFilter').checked);
+            sessionStorage.setItem('reverseMode', isReverseMode);
             sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
             sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
             sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
+            sessionStorage.setItem('emaPeriod', document.getElementById('emaPeriod').value);
             sessionStorage.setItem('durationType', document.getElementById('durationType').value);
             sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
             sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
@@ -1307,7 +1455,7 @@
             }
         }
 
-        // NEW: Function to safely close a candle from either Tick or Timer
+        // Function to safely close a candle from either Tick or Timer
         function finalizeCandle(symbol, closeTime, closePrice) {
             if (!currentOHLC[symbol]) return;
 
@@ -1321,6 +1469,9 @@
             };
 
             candleData[symbol].push(completedCandle);
+            
+            // Clear EMA cache for this symbol when new candle is added
+            emaCache[symbol] = {};
             
             // Maintain buffer limit
             if (candleData[symbol].length > 100) {
@@ -1342,7 +1493,8 @@
             
             // Check for signals IMMEDIATELY upon close
             const trendFilter = document.getElementById('trendFilter').checked;
-            const requiredCandles = trendFilter ? 52 : 3;
+            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
+            const requiredCandles = trendFilter ? (emaPeriod + 2) : 3;
             
             if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
                 checkForSignals(symbol);
@@ -1352,7 +1504,7 @@
         // Connect to Deriv API
         function connectWebSocket(token) {
             return new Promise((resolve, reject) => {
-                ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+                ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=116948');
 
                 ws.onopen = () => {
                     logActivity('WebSocket connected', 'success');
@@ -1408,7 +1560,7 @@
             });
         }
 
-        // Handle WebSocket messages - UPDATED with time sync
+        // Handle WebSocket messages
         function handleWebSocketMessage(data, resolve, reject) {
             if (data.error) {
                 if (data.error.code !== 'AlreadySubscribed') {
@@ -1450,7 +1602,7 @@
                 document.getElementById('accountBalance').textContent = parseFloat(accountInfo.balance).toFixed(2);
             }
 
-            // UPDATED: Tick handler with time synchronization
+            // Tick handler with time synchronization
             if (data.msg_type === 'tick' && data.tick) {
                 const symbol = data.tick.symbol;
                 if (!activeMarkets[symbol]) return;
@@ -1459,7 +1611,7 @@
                 const quote = parseFloat(data.tick.quote);
                 const now = Date.now();
                 
-                // 1. TIME SYNC: Calculate difference between PC time and Server time
+                // TIME SYNC: Calculate difference between PC time and Server time
                 const calculatedOffset = now - (epoch * 1000);
                 if (!isTimeSynced) {
                     serverTimeOffset = calculatedOffset;
@@ -1477,13 +1629,13 @@
                     currentOHLC[symbol] = { open: quote, high: quote, low: quote, close: quote };
                 }
 
-                // 2. CHECK: Did we cross into a new minute?
+                // CHECK: Did we cross into a new minute?
                 if (tickMinute > currentMinute[symbol]) {
                     // If the Watchdog hasn't closed it yet, close it now using this tick
                     finalizeCandle(symbol, tickMinute, quote);
                 }
 
-                // 3. UPDATE: Update the currently running candle
+                // UPDATE: Update the currently running candle
                 if (currentOHLC[symbol]) {
                     currentOHLC[symbol].high = Math.max(currentOHLC[symbol].high, quote);
                     currentOHLC[symbol].low = Math.min(currentOHLC[symbol].low, quote);
@@ -1543,15 +1695,70 @@
             }
         }
 
-        // Find symbol by subscription ID
-        function findSymbolBySubscriptionId(id) {
-            if (!id) return null;
-            for (const [symbol, subId] of Object.entries(marketSubscriptions)) {
-                if (subId === id) {
-                    return symbol;
+        // UPDATED: Handle trade result with duplicate prevention
+        function handleTradeResult(contract) {
+            // Only process completed trades (won/lost/sold)
+            if (['won', 'lost', 'sold'].includes(contract.status)) {
+                
+                // 1. DUPLICATE CHECK: If we already have this trade ID, stop.
+                // This prevents Deriv's double-signaling from corrupting the list.
+                if (tradeHistory.some(t => t.id === contract.contract_id)) {
+                    return;
+                }
+
+                const profit = parseFloat(contract.profit || 0);
+                const isWin = profit > 0;
+
+                // Update Stats
+                tradeStats.total++;
+                if (isWin) tradeStats.wins++;
+                else tradeStats.losses++;
+                tradeStats.profitLoss += profit;
+
+                // 2. CREATE SAFE OBJECT: Ensure no fields are undefined
+                const trade = {
+                    id: contract.contract_id,
+                    time: new Date().toLocaleTimeString(),
+                    market: markets[contract.underlying] || contract.underlying || 'Unknown',
+                    type: contract.contract_type || 'Unknown',
+                    stake: parseFloat(contract.buy_price || 0).toFixed(2),
+                    result: profit.toFixed(2),
+                    isWin: isWin
+                };
+
+                // 3. SAFE ARRAY INSERTION
+                if (!Array.isArray(tradeHistory)) tradeHistory = [];
+                tradeHistory.unshift(trade);
+                
+                // Limit history to 100 items to save memory
+                if (tradeHistory.length > 100) tradeHistory.pop();
+
+                // Update UI
+                updateStats();
+                updateTradeHistoryTable();
+                saveSettings();
+
+                logActivity(`Trade closed: ${trade.market} - ${trade.type} - P/L: ${trade.result}`, isWin ? 'success' : 'error');
+
+                // Check Limits
+                const stopLoss = parseFloat(document.getElementById('stopLoss').value);
+                const takeProfit = parseFloat(document.getElementById('takeProfit').value);
+
+                if (stopLoss > 0 && Math.abs(tradeStats.profitLoss) >= stopLoss && tradeStats.profitLoss < 0) {
+                    logActivity(`Stop loss reached: ${tradeStats.profitLoss.toFixed(2)}`, 'error');
+                    stopAutoTrading();
+                }
+
+                if (takeProfit > 0 && tradeStats.profitLoss >= takeProfit) {
+                    logActivity(`Take profit reached: ${tradeStats.profitLoss.toFixed(2)}`, 'success');
+                    stopAutoTrading();
+                }
+                    
+                  // Clean up pending trades
+                if (pendingTrades.has(contract.contract_id)) {
+                    pendingTrades.delete(contract.contract_id);
                 }
             }
-            return null;
         }
 
         // Login
@@ -1573,6 +1780,7 @@
                 document.getElementById('accountInfo').classList.remove('hidden');
                 document.getElementById('timerDisplay').classList.remove('hidden');
                 document.getElementById('autoTradeBtn').disabled = false;
+                document.getElementById('reverseModeBtn').disabled = false;
 
                 saveSettings();
                 startSessionTimer();
@@ -1607,6 +1815,7 @@
             document.getElementById('accountInfo').classList.add('hidden');
             document.getElementById('timerDisplay').classList.add('hidden');
             document.getElementById('autoTradeBtn').disabled = true;
+            document.getElementById('reverseModeBtn').disabled = true;
             document.getElementById('loginBtn').disabled = false;
             document.getElementById('loginBtn').textContent = 'Login';
 
@@ -1683,6 +1892,7 @@
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
+                emaCache[symbol] = {};
                 updateSubscriptionIndicator(symbol, 'disconnected');
                 logActivity(`Unsubscribed from ${markets[symbol]}`);
             }
@@ -1724,30 +1934,53 @@
             });
         }
 
-        // Calculate EMA
+        // OPTIMIZED: Calculate EMA with caching
         function calculateEMA(data, period) {
             if (data.length < period) return null;
 
-            const k = 2 / (period + 1);
-            let ema = data.slice(0, period).reduce((sum, candle) => sum + candle.close, 0) / period;
+            // Create a cache key based on data length and period
+            const cacheKey = `${data.length}_${period}`;
+            
+            // Check if we have a cached value
+            const symbol = Object.keys(candleData).find(s => candleData[s] === data);
+            if (symbol && emaCache[symbol] && emaCache[symbol][cacheKey] !== undefined) {
+                return emaCache[symbol][cacheKey];
+            }
 
+            const k = 2 / (period + 1);
+            
+            // Calculate initial SMA
+            let ema = 0;
+            for (let i = 0; i < period; i++) {
+                ema += data[i].close;
+            }
+            ema /= period;
+
+            // Calculate EMA
             for (let i = period; i < data.length; i++) {
                 ema = data[i].close * k + ema * (1 - k);
+            }
+
+            // Cache the result
+            if (symbol) {
+                if (!emaCache[symbol]) emaCache[symbol] = {};
+                emaCache[symbol][cacheKey] = ema;
             }
 
             return ema;
         }
 
-        // UPDATED: Check for trading signals with correct indices
+        // Check for trading signals with reverse mode support
         function checkForSignals(symbol) {
             const trendFilter = document.getElementById('trendFilter').checked;
-            const requiredCandles = trendFilter ? 52 : 2;
+            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
+            const requiredCandles = trendFilter ? (emaPeriod + 2) : 2;
             
             if (candleData[symbol].length < requiredCandles) return;
 
             const candles = candleData[symbol];
             
-            // FIXED INDICES: Use the candle that JUST closed (-1) and the one before it (-2)
+            // Use the candle that JUST closed (-1) and the one before it (-2)
             const lastCandle = candles[candles.length - 1];
             const prevCandle = candles[candles.length - 2];
 
@@ -1765,6 +1998,7 @@
 
             const zeroClosingFilter = document.getElementById('zeroClosingFilter').checked;
             const ignoreHeightFilter = document.getElementById('ignoreHeightFilter').checked;
+            const lengthFilter = document.getElementById('lengthFilter').checked;
             const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value) / 100;
             const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value) / 100;
             const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value) / 100;
@@ -1772,40 +2006,48 @@
             const matchingDiffBuy = parseFloat(document.getElementById('matchingDiffBuy').value) / 100;
             const matchingDiffSell = parseFloat(document.getElementById('matchingDiffSell').value) / 100;
 
-            let ema50 = null;
+            let emaValue = null;
             if (trendFilter) {
-                ema50 = calculateEMA(candles.slice(0, -1), 50);
+                emaValue = calculateEMA(candles.slice(0, -1), emaPeriod);
             }
 
-            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, minLowerWickBuy, minUpperWickBuy, matchingDiffBuy);
+            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, lengthFilter, minLowerWickBuy, minUpperWickBuy, matchingDiffBuy);
             if (buySignal) {
-                if (trendFilter && ema50) {
-                    if (lastCandle.close > ema50) {
-                        addSignal(symbol, 'Tweezers Bottom BUY');
-                        executeTrade(symbol, 'CALL', candleKey);
+                if (trendFilter && emaValue) {
+                    if (lastCandle.close > emaValue) {
+                        const tradeType = isReverseMode ? 'PUT' : 'CALL';
+                        const signalText = isReverseMode ? 'Tweezers Bottom SELL (REVERSED)' : 'Tweezers Bottom BUY';
+                        addSignal(symbol, `${signalText} (Price: ${lastCandle.close.toFixed(5)}, EMA${emaPeriod}: ${emaValue.toFixed(5)})`);
+                        executeTrade(symbol, tradeType, candleKey);
                     }
                 } else {
-                    addSignal(symbol, 'Tweezers Bottom BUY');
-                    executeTrade(symbol, 'CALL', candleKey);
+                    const tradeType = isReverseMode ? 'PUT' : 'CALL';
+                    const signalText = isReverseMode ? 'Tweezers Bottom SELL (REVERSED)' : 'Tweezers Bottom BUY';
+                    addSignal(symbol, signalText);
+                    executeTrade(symbol, tradeType, candleKey);
                 }
             }
 
-            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, minUpperWickSell, minLowerWickSell, matchingDiffSell);
+            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, lengthFilter, minUpperWickSell, minLowerWickSell, matchingDiffSell);
             if (sellSignal) {
-                if (trendFilter && ema50) {
-                    if (lastCandle.close < ema50) {
-                        addSignal(symbol, 'Tweezers Top SELL');
-                        executeTrade(symbol, 'PUT', candleKey);
+                if (trendFilter && emaValue) {
+                    if (lastCandle.close < emaValue) {
+                        const tradeType = isReverseMode ? 'CALL' : 'PUT';
+                        const signalText = isReverseMode ? 'Tweezers Top BUY (REVERSED)' : 'Tweezers Top SELL';
+                        addSignal(symbol, `${signalText} (Price: ${lastCandle.close.toFixed(5)}, EMA${emaPeriod}: ${emaValue.toFixed(5)})`);
+                        executeTrade(symbol, tradeType, candleKey);
                     }
                 } else {
-                    addSignal(symbol, 'Tweezers Top SELL');
-                    executeTrade(symbol, 'PUT', candleKey);
+                    const tradeType = isReverseMode ? 'CALL' : 'PUT';
+                    const signalText = isReverseMode ? 'Tweezers Top BUY (REVERSED)' : 'Tweezers Top SELL';
+                    addSignal(symbol, signalText);
+                    executeTrade(symbol, tradeType, candleKey);
                 }
             }
         }
 
-        // Check Tweezers Bottom pattern
-        function checkTweezersBottom(candle1, candle2, zeroClosing, ignoreHeight, minLowerWickPercent, minUpperWickPercent, matchingDiff) {
+        // UPDATED: Check Tweezers Bottom pattern with Length Filter integration
+        function checkTweezersBottom(candle1, candle2, zeroClosing, ignoreHeight, lengthFilter, minLowerWickPercent, minUpperWickPercent, matchingDiff) {
             const isCandle1Red = candle1.close < candle1.open;
             if (!isCandle1Red) return false;
 
@@ -1819,7 +2061,8 @@
             if (candle1LowerWick / candle1Range < minLowerWickPercent) return false;
 
             if (zeroClosing) {
-                if (candle1UpperWick / candle1Range > 0.01) return false;
+                // PERFECT ZERO: No upper wick at all
+                if (candle1UpperWick !== 0) return false;
             } else {
                 if (candle1UpperWick / candle1Range > minUpperWickPercent) return false;
             }
@@ -1837,7 +2080,8 @@
             if (candle2LowerWick / candle2Range < minLowerWickPercent) return false;
 
             if (zeroClosing) {
-                if (candle2UpperWick / candle2Range > 0.01) return false;
+                // PERFECT ZERO: No upper wick at all
+                if (candle2UpperWick !== 0) return false;
             } else {
                 if (candle2UpperWick / candle2Range > minUpperWickPercent) return false;
             }
@@ -1845,17 +2089,30 @@
             const lowDiff = Math.abs(candle1.low - candle2.low) / candle1.low;
             if (lowDiff > matchingDiff) return false;
 
+            // HEIGHT CHECK: Ignore Height has priority over Length Filter
             if (ignoreHeight) {
+                // When Ignore Height is enabled, skip all height checks
                 return true;
+            } else if (lengthFilter) {
+                // Length Filter: Confirmation candle's upper length must be <= first candle's upper length
+                // Upper length = distance from low to high (excluding the matching low)
+                const candle1UpperLength = candle1.high - candle1.low;
+                const candle2UpperLength = candle2.high - candle2.low;
+                
+                if (candle2UpperLength > candle1UpperLength) return false;
+                
+                // Also check that candle2 doesn't close above candle1 high
+                if (candle2.close > candle1.high) return false;
             } else {
+                // Original height check (no filters)
                 if (candle2.close < candle1.high) return false;
             }
 
             return true;
         }
 
-        // Check Tweezers Top pattern
-        function checkTweezersTop(candle1, candle2, zeroClosing, ignoreHeight, minUpperWickPercent, minLowerWickPercent, matchingDiff) {
+        // UPDATED: Check Tweezers Top pattern with Length Filter integration
+        function checkTweezersTop(candle1, candle2, zeroClosing, ignoreHeight, lengthFilter, minUpperWickPercent, minLowerWickPercent, matchingDiff) {
             const isCandle1Green = candle1.close > candle1.open;
             if (!isCandle1Green) return false;
 
@@ -1869,7 +2126,8 @@
             if (candle1UpperWick / candle1Range < minUpperWickPercent) return false;
 
             if (zeroClosing) {
-                if (candle1LowerWick / candle1Range > 0.01) return false;
+                // PERFECT ZERO: No lower wick at all
+                if (candle1LowerWick !== 0) return false;
             } else {
                 if (candle1LowerWick / candle1Range > minLowerWickPercent) return false;
             }
@@ -1887,7 +2145,8 @@
             if (candle2UpperWick / candle2Range < minUpperWickPercent) return false;
 
             if (zeroClosing) {
-                if (candle2LowerWick / candle2Range > 0.01) return false;
+                // PERFECT ZERO: No lower wick at all
+                if (candle2LowerWick !== 0) return false;
             } else {
                 if (candle2LowerWick / candle2Range > minLowerWickPercent) return false;
             }
@@ -1895,9 +2154,22 @@
             const highDiff = Math.abs(candle1.high - candle2.high) / candle1.high;
             if (highDiff > matchingDiff) return false;
 
+            // HEIGHT CHECK: Ignore Height has priority over Length Filter
             if (ignoreHeight) {
+                // When Ignore Height is enabled, skip all height checks
                 return true;
+            } else if (lengthFilter) {
+                // Length Filter: Confirmation candle's lower length must be <= first candle's lower length
+                // Lower length = distance from high to low (excluding the matching high)
+                const candle1LowerLength = candle1.high - candle1.low;
+                const candle2LowerLength = candle2.high - candle2.low;
+                
+                if (candle2LowerLength > candle1LowerLength) return false;
+                
+                // Also check that candle2 doesn't close below candle1 low
+                if (candle2.close < candle1.low) return false;
             } else {
+                // Original height check (no filters)
                 if (candle2.close > candle1.low) return false;
             }
 
@@ -1998,59 +2270,6 @@
             }
         }
 
-        // Handle trade result
-        function handleTradeResult(contract) {
-            if (contract.status === 'sold' || contract.status === 'won' || contract.status === 'lost') {
-                const profit = parseFloat(contract.profit || 0);
-                const isWin = profit > 0;
-
-                tradeStats.total++;
-                if (isWin) {
-                    tradeStats.wins++;
-                } else {
-                    tradeStats.losses++;
-                }
-                tradeStats.profitLoss += profit;
-
-                const trade = {
-                    time: new Date().toLocaleTimeString(),
-                    market: markets[contract.underlying] || contract.underlying,
-                    type: contract.contract_type,
-                    stake: parseFloat(contract.buy_price || 0).toFixed(2),
-                    result: profit.toFixed(2),
-                    isWin: isWin
-                };
-
-                tradeHistory.unshift(trade);
-                if (tradeHistory.length > 100) {
-                    tradeHistory.pop();
-                }
-
-                updateStats();
-                updateTradeHistoryTable();
-                saveSettings();
-
-                logActivity(`Trade closed: ${trade.market} - ${trade.type} - P/L: ${trade.result}`, isWin ? 'success' : 'error');
-
-                const stopLoss = parseFloat(document.getElementById('stopLoss').value);
-                const takeProfit = parseFloat(document.getElementById('takeProfit').value);
-
-                if (stopLoss > 0 && Math.abs(tradeStats.profitLoss) >= stopLoss && tradeStats.profitLoss < 0) {
-                    logActivity(`Stop loss reached: ${tradeStats.profitLoss.toFixed(2)}`, 'error');
-                    stopAutoTrading();
-                }
-
-                if (takeProfit > 0 && tradeStats.profitLoss >= takeProfit) {
-                    logActivity(`Take profit reached: ${tradeStats.profitLoss.toFixed(2)}`, 'success');
-                    stopAutoTrading();
-                }
-
-                if (pendingTrades.has(contract.contract_id)) {
-                    pendingTrades.delete(contract.contract_id);
-                }
-            }
-        }
-
         // Update statistics
         function updateStats() {
             document.getElementById('totalTrades').textContent = tradeStats.total;
@@ -2094,7 +2313,7 @@
             updateTradeCountDisplay();
         }
 
-        // UPDATED: Start auto trading with watchdog timer
+        // Start auto trading with watchdog timer
         function startAutoTrading() {
             if (!isLoggedIn) {
                 logActivity('Please login first', 'error');
@@ -2116,6 +2335,7 @@
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
+                emaCache[symbol] = {};
             });
             
             document.getElementById('autoTradeBtn').textContent = 'Stop Auto Trade';
@@ -2131,16 +2351,32 @@
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
             const trendFilter = document.getElementById('trendFilter').checked;
-            const requiredCandles = trendFilter ? 52 : 3;
+            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
+            const requiredCandles = trendFilter ? (emaPeriod + 2) : 3;
             
             logActivity('Auto trading started', 'success');
             logActivity(`Activation time set: ${new Date(activation_time * 1000).toLocaleTimeString()}`, 'info');
-            logActivity(`Waiting for ${requiredCandles} candles before analyzing (Trend Filter: ${trendFilter ? 'ON' : 'OFF'})`, 'info');
+            logActivity(`Reverse Mode: ${isReverseMode ? 'ON' : 'OFF'}`, isReverseMode ? 'success' : 'info');
+            
+            // Log active filters
+            const activeFilters = [];
+            if (trendFilter) activeFilters.push(`Trend Filter (EMA${emaPeriod})`);
+            if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
+            if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
+            if (document.getElementById('lengthFilter').checked) activeFilters.push('Length Filter');
+            
+            if (activeFilters.length > 0) {
+                logActivity(`Active filters: ${activeFilters.join(', ')}`, 'info');
+            } else {
+                logActivity('No filters active', 'info');
+            }
+            
+            logActivity(`Waiting for ${requiredCandles} candles before analyzing`, 'info');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
 
-            // NEW: Add Watchdog Timer
+            // Add Watchdog Timer
             if (candleWatchdogTimer) clearInterval(candleWatchdogTimer);
             
             // Run every 200ms to check if a minute has passed
@@ -2166,7 +2402,7 @@
             }, 200);
         }
 
-        // UPDATED: Stop auto trading and clear watchdog
+        // Stop auto trading and clear watchdog
         function stopAutoTrading() {
             isAutoTrading = false;
             activation_time = 0;
@@ -2196,12 +2432,38 @@
             }
         }
 
+        // Update reverse mode button
+        function updateReverseModeButton() {
+            const btn = document.getElementById('reverseModeBtn');
+            if (isReverseMode) {
+                btn.textContent = 'Reverse Mode: ON';
+                btn.className = 'btn btn-warning';
+            } else {
+                btn.textContent = 'Reverse Mode: OFF';
+                btn.className = 'btn btn-warning';
+            }
+        }
+
         // Auto trade button
         document.getElementById('autoTradeBtn').addEventListener('click', () => {
             if (isAutoTrading) {
                 stopAutoTrading();
             } else {
                 startAutoTrading();
+            }
+        });
+
+        // Reverse mode button
+        document.getElementById('reverseModeBtn').addEventListener('click', () => {
+            isReverseMode = !isReverseMode;
+            updateReverseModeButton();
+            updateReverseModeIndicator();
+            saveSettings();
+            
+            if (isReverseMode) {
+                logActivity('Reverse Mode ENABLED: Buy signals will execute Sell, Sell signals will execute Buy', 'success');
+            } else {
+                logActivity('Reverse Mode DISABLED: Normal trading mode', 'info');
             }
         });
 
@@ -2220,9 +2482,10 @@
         // Save settings on change
         document.getElementById('trendFilter').addEventListener('change', () => {
             const enabled = document.getElementById('trendFilter').checked;
-            logActivity(`Trend filter ${enabled ? 'enabled' : 'disabled'}`);
+            const emaPeriod = document.getElementById('emaPeriod').value;
+            logActivity(`Trend filter ${enabled ? 'enabled (EMA' + emaPeriod + ')' : 'disabled'}`);
             if (isAutoTrading) {
-                const requiredCandles = enabled ? 52 : 3;
+                const requiredCandles = enabled ? (parseInt(emaPeriod) + 2) : 3;
                 logActivity(`Required candles updated to ${requiredCandles}`, 'info');
                 updateCandleCounter();
             }
@@ -2230,12 +2493,25 @@
         });
 
         document.getElementById('zeroClosingFilter').addEventListener('change', () => {
-            logActivity(`Zero closing filter ${document.getElementById('zeroClosingFilter').checked ? 'enabled' : 'disabled'}`);
+            const enabled = document.getElementById('zeroClosingFilter').checked;
+            logActivity(`Zero closing filter (Perfect 0) ${enabled ? 'enabled' : 'disabled'}`);
             saveSettings();
         });
 
         document.getElementById('ignoreHeightFilter').addEventListener('change', () => {
-            logActivity(`Ignore height filter ${document.getElementById('ignoreHeightFilter').checked ? 'enabled' : 'disabled'}`);
+            const enabled = document.getElementById('ignoreHeightFilter').checked;
+            logActivity(`Ignore height filter ${enabled ? 'enabled' : 'disabled'}`);
+            checkFilterConflicts();
+            saveSettings();
+        });
+
+        document.getElementById('lengthFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('lengthFilter').checked;
+            logActivity(`Length filter ${enabled ? 'enabled' : 'disabled'}`);
+            if (enabled) {
+                logActivity('Length Filter: Confirmation candle height must be ≤ first candle height', 'info');
+            }
+            checkFilterConflicts();
             saveSettings();
         });
 
@@ -2251,6 +2527,23 @@
 
         document.getElementById('takeProfit').addEventListener('change', () => {
             logActivity(`Take profit updated to ${document.getElementById('takeProfit').value}`);
+            saveSettings();
+        });
+
+        document.getElementById('emaPeriod').addEventListener('change', () => {
+            const emaPeriod = document.getElementById('emaPeriod').value;
+            logActivity(`EMA period updated to ${emaPeriod}`);
+            
+            // Clear EMA cache when period changes
+            Object.keys(emaCache).forEach(symbol => {
+                emaCache[symbol] = {};
+            });
+            
+            if (isAutoTrading && document.getElementById('trendFilter').checked) {
+                const requiredCandles = parseInt(emaPeriod) + 2;
+                logActivity(`Required candles updated to ${requiredCandles}`, 'info');
+                updateCandleCounter();
+            }
             saveSettings();
         });
 
@@ -2299,6 +2592,7 @@
             const stakeAmount = parseFloat(document.getElementById('stakeAmount').value);
             const stopLoss = parseFloat(document.getElementById('stopLoss').value);
             const takeProfit = parseFloat(document.getElementById('takeProfit').value);
+            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
             const durationValue = parseInt(document.getElementById('durationValue').value);
             const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value);
             const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value);
@@ -2322,6 +2616,12 @@
             if (takeProfit < 0) {
                 logActivity('Take profit cannot be negative', 'error');
                 document.getElementById('takeProfit').value = 0;
+                return false;
+            }
+
+            if (emaPeriod < 5 || emaPeriod > 200) {
+                logActivity('EMA period must be between 5 and 200', 'error');
+                document.getElementById('emaPeriod').value = 50;
                 return false;
             }
 
@@ -2374,6 +2674,7 @@
         document.getElementById('stakeAmount').addEventListener('blur', validateInputs);
         document.getElementById('stopLoss').addEventListener('blur', validateInputs);
         document.getElementById('takeProfit').addEventListener('blur', validateInputs);
+        document.getElementById('emaPeriod').addEventListener('blur', validateInputs);
         document.getElementById('durationValue').addEventListener('blur', validateInputs);
         document.getElementById('minLowerWickBuy').addEventListener('blur', validateInputs);
         document.getElementById('minUpperWickSell').addEventListener('blur', validateInputs);
@@ -2421,6 +2722,22 @@
                         stopAutoTrading();
                     } else {
                         startAutoTrading();
+                    }
+                }
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+                e.preventDefault();
+                if (isLoggedIn && document.getElementById('reverseModeBtn').disabled === false) {
+                    isReverseMode = !isReverseMode;
+                    updateReverseModeButton();
+                    updateReverseModeIndicator();
+                    saveSettings();
+                    
+                    if (isReverseMode) {
+                        logActivity('Reverse Mode ENABLED via keyboard shortcut', 'success');
+                    } else {
+                        logActivity('Reverse Mode DISABLED via keyboard shortcut', 'info');
                     }
                 }
             }
@@ -2491,6 +2808,7 @@
             'stakeAmount': 'Amount to stake per trade (minimum 0.35)',
             'stopLoss': 'Stop trading when total loss reaches this amount',
             'takeProfit': 'Stop trading when total profit reaches this amount',
+            'emaPeriod': 'EMA period used when Trend Filter is enabled (5-200)',
             'durationType': 'Unit of time for trade duration',
             'durationValue': 'Number of units for trade duration',
             'minLowerWickBuy': 'Minimum lower wick percentage required for Buy signal (0-100%)',
@@ -2499,9 +2817,11 @@
             'minLowerWickSell': 'Maximum lower wick percentage allowed for Sell signal (0-100%)',
             'matchingDiffBuy': 'Maximum low matching difference for Buy signal (0-5%)',
             'matchingDiffSell': 'Maximum high matching difference for Sell signal (0-5%)',
-            'trendFilter': 'Only trade in the direction of 50 EMA trend',
-            'zeroClosingFilter': 'Only trade on perfect candle closes (minimal opposite wicks)',
-            'ignoreHeightFilter': 'Allow confirmation candle to be any height (less than, equal to, or greater than first candle)'
+            'trendFilter': 'Only trade in the direction of EMA trend',
+            'zeroClosingFilter': 'Only trade on PERFECT candle closes (exactly 0 opposite wick)',
+            'ignoreHeightFilter': 'Allow confirmation candle to be any height (less than, equal to, or greater than first candle)',
+            'lengthFilter': 'Confirmation candle height must be ≤ first candle height (conflicts with Ignore Height)',
+            'reverseModeBtn': 'Reverse all signals: Buy becomes Sell, Sell becomes Buy'
         };
 
         Object.entries(tooltips).forEach(([id, text]) => {
@@ -2575,8 +2895,12 @@
         setTimeout(() => {
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
+            logActivity('Tip: Press Ctrl+R to toggle reverse mode', 'info');
             logActivity('Tip: Use console command exportTradeHistory() to export trades', 'info');
-            logActivity('Speed optimization enabled: Watchdog timer active', 'success');
+            logActivity('Speed optimization enabled: Watchdog timer + EMA caching active', 'success');
+            logActivity('NEW: Length Filter added - Limits confirmation candle height', 'success');
+            logActivity('NEW: Conflict detection system active for filter combinations', 'success');
+            logActivity('App ID: 116948 | Features: Dynamic EMA, Perfect Zero Closing, Reverse Mode, Length Filter', 'success');
         }, 1000);
     </script>
 </body>
