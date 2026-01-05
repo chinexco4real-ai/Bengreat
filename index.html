@@ -238,59 +238,56 @@
             position: relative;
         }
 
-        .market-left {
-            display: flex;
-            align-items: center;
-            gap: 10px;
+        .market-name {
+            font-size: 13px;
+            color: #e0e0e0;
             flex: 1;
         }
 
-        .market-status-dot {
+        .market-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .subscription-indicator {
             width: 10px;
             height: 10px;
             border-radius: 50%;
             background-color: #3d4663;
             transition: all 0.3s ease;
-            flex-shrink: 0;
         }
 
-        .market-status-dot.subscribed {
+        .subscription-indicator.subscribing {
+            background-color: #f1c40f;
+            box-shadow: 0 0 10px rgba(241, 196, 15, 0.6);
+            animation: pulse-yellow 1s infinite;
+        }
+
+        .subscription-indicator.subscribed {
             background-color: #2ecc71;
-            box-shadow: 0 0 10px #2ecc71, 0 0 20px #2ecc71, 0 0 30px #2ecc71;
-            animation: glow-pulse 2s infinite;
+            box-shadow: 0 0 10px rgba(46, 204, 113, 0.6);
+            animation: glow 2s infinite;
         }
 
-        .market-status-dot.failed {
-            background-color: #ff4757;
-            box-shadow: 0 0 10px #ff4757;
-        }
-
-        .market-status-dot.subscribing {
-            background-color: #f39c12;
-            animation: blink 1s infinite;
-        }
-
-        @keyframes glow-pulse {
-            0%, 100% {
-                box-shadow: 0 0 5px #2ecc71, 0 0 10px #2ecc71, 0 0 15px #2ecc71;
-            }
-            50% {
-                box-shadow: 0 0 10px #2ecc71, 0 0 20px #2ecc71, 0 0 30px #2ecc71;
-            }
-        }
-
-        @keyframes blink {
+        @keyframes pulse-yellow {
             0%, 100% {
                 opacity: 1;
+                transform: scale(1);
             }
             50% {
-                opacity: 0.3;
+                opacity: 0.6;
+                transform: scale(1.2);
             }
         }
 
-        .market-name {
-            font-size: 13px;
-            color: #e0e0e0;
+        @keyframes glow {
+            0%, 100% {
+                box-shadow: 0 0 5px rgba(46, 204, 113, 0.6);
+            }
+            50% {
+                box-shadow: 0 0 15px rgba(46, 204, 113, 0.9);
+            }
         }
 
         .toggle-switch {
@@ -543,14 +540,14 @@
             transition: all 0.3s ease;
         }
 
-        .signal-item.buy {
-            border-left-color: #00d4ff;
-            background: rgba(0, 212, 255, 0.1);
+        .signal-item.win {
+            border-left-color: #2ecc71;
+            background: rgba(46, 204, 113, 0.1);
         }
 
-        .signal-item.sell {
-            border-left-color: #f39c12;
-            background: rgba(243, 156, 18, 0.1);
+        .signal-item.loss {
+            border-left-color: #ff4757;
+            background: rgba(255, 71, 87, 0.1);
         }
 
         .signal-text {
@@ -725,6 +722,17 @@
         .hidden {
             display: none;
         }
+
+        .candle-counter {
+            font-size: 13px;
+            color: #f1c40f;
+            font-weight: 600;
+            margin-top: 10px;
+            text-align: center;
+            padding: 8px;
+            background: rgba(241, 196, 15, 0.1);
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
@@ -777,6 +785,7 @@
                     <span class="status-text" id="statusText">Bot Inactive</span>
                 </div>
             </div>
+            <div id="candleCounter" class="candle-counter hidden">Building candles: 0 / 0 required</div>
             <div class="signals-container" id="signalsContainer">
                 <div class="signal-item">
                     <div class="signal-text">Waiting for bot activation...</div>
@@ -808,30 +817,9 @@
                         </label>
                     </div>
                     <div class="filter-item">
-                        <span class="filter-label">Ignore % (Opposite Wick)</span>
+                        <span class="filter-label">Ignore Height</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="ignoreWickPercent">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="filter-item">
-                        <span class="filter-label">Ignore Height (Candle Height)</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="ignoreHeight">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="filter-item">
-                        <span class="filter-label">Ignore Match Diff (Low/High Match)</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="ignoreMatchDiff">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="filter-item">
-                        <span class="filter-label">Require Engulfing (Strict Breakout)</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="requireEngulfing">
+                            <input type="checkbox" id="ignoreHeightFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -870,6 +858,22 @@
                     <div class="input-group">
                         <label class="input-label">Min Upper Wick % (Sell)</label>
                         <input type="number" class="input-field" id="minUpperWickSell" value="50" min="0" max="100" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Min Upper Wick % (Buy)</label>
+                        <input type="number" class="input-field" id="minUpperWickBuy" value="20" min="0" max="100" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Min Lower Wick % (Sell)</label>
+                        <input type="number" class="input-field" id="minLowerWickSell" value="20" min="0" max="100" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Matching Diff % (Buy)</label>
+                        <input type="number" class="input-field" id="matchingDiffBuy" value="0.3" min="0" max="5" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Matching Diff % (Sell)</label>
+                        <input type="number" class="input-field" id="matchingDiffSell" value="0.3" min="0" max="5" step="0.1">
                     </div>
                 </div>
 
@@ -961,11 +965,13 @@
         let ws = null;
         let isLoggedIn = false;
         let isAutoTrading = false;
+        let activation_time = 0;
         let activeMarkets = {};
         let marketSubscriptions = {};
-        let pendingSubscriptions = new Map();
-        let marketSubscriptionStatus = {};
+        let pendingSubscriptions = {};
         let candleData = {};
+        let currentOHLC = {};
+        let currentMinute = {};
         let tradeHistory = [];
         let sessionTimer = null;
         let sessionStartTime = null;
@@ -979,42 +985,18 @@
         let pendingTrades = new Map();
         let isFirstSignal = true;
         let lastHeartbeat = Date.now();
-        
-        // One trade per candle per market tracking
         let tradedCandles = {};
-        
-        // Request ID tracking
         let requestIdCounter = 0;
         let pendingProposals = new Map();
-        let buyRequestMap = new Map();
-
-        // Bot activation tracking
-        let botStartTime = null;
-        let initializedMarkets = new Set();
 
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
             activeMarkets[symbol] = true;
             candleData[symbol] = [];
+            currentOHLC[symbol] = undefined;
+            currentMinute[symbol] = undefined;
             tradedCandles[symbol] = new Set();
-            marketSubscriptionStatus[symbol] = 'inactive';
         });
-
-        // Update market status dot
-        function updateMarketStatusDot(symbol, status) {
-            const dot = document.getElementById(`status-dot-${symbol}`);
-            if (dot) {
-                dot.className = 'market-status-dot';
-                if (status === 'subscribed') {
-                    dot.classList.add('subscribed');
-                } else if (status === 'failed') {
-                    dot.classList.add('failed');
-                } else if (status === 'subscribing') {
-                    dot.classList.add('subscribing');
-                }
-                marketSubscriptionStatus[symbol] = status;
-            }
-        }
 
         // Update connection badge
         function updateConnectionBadge(connected) {
@@ -1030,16 +1012,71 @@
             }
         }
 
+        // Update subscription indicator for a specific market
+        function updateSubscriptionIndicator(symbol, state) {
+            const indicator = document.querySelector(`[data-indicator="${symbol}"]`);
+            if (indicator) {
+                indicator.className = 'subscription-indicator';
+                if (state === 'subscribing') {
+                    indicator.classList.add('subscribing');
+                } else if (state === 'subscribed') {
+                    indicator.classList.add('subscribed');
+                }
+            }
+        }
+
+        // Update candle counter
+        function updateCandleCounter() {
+            if (!isAutoTrading) {
+                document.getElementById('candleCounter').classList.add('hidden');
+                return;
+            }
+
+            const trendFilter = document.getElementById('trendFilter').checked;
+            const requiredCandles = trendFilter ? 52 : 3;
+            
+            let minCandles = Infinity;
+            let activeCount = 0;
+            
+            Object.keys(activeMarkets).forEach(symbol => {
+                if (activeMarkets[symbol] && marketSubscriptions[symbol]) {
+                    activeCount++;
+                    const count = candleData[symbol].length;
+                    if (count < minCandles) {
+                        minCandles = count;
+                    }
+                }
+            });
+
+            if (activeCount === 0) {
+                document.getElementById('candleCounter').classList.add('hidden');
+                return;
+            }
+
+            if (minCandles === Infinity) minCandles = 0;
+
+            const counterElement = document.getElementById('candleCounter');
+            
+            if (minCandles >= requiredCandles) {
+                counterElement.textContent = `✓ Ready to analyze - All markets have ${requiredCandles}+ candles`;
+                counterElement.style.color = '#2ecc71';
+                counterElement.style.background = 'rgba(46, 204, 113, 0.1)';
+            } else {
+                counterElement.textContent = `Building candles: ${minCandles} / ${requiredCandles} required (${requiredCandles - minCandles} more needed)`;
+                counterElement.style.color = '#f1c40f';
+                counterElement.style.background = 'rgba(241, 196, 15, 0.1)';
+            }
+            
+            counterElement.classList.remove('hidden');
+        }
+
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
             const savedTrendFilter = sessionStorage.getItem('trendFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
-            const savedIgnoreWickPercent = sessionStorage.getItem('ignoreWickPercent');
-            const savedIgnoreHeight = sessionStorage.getItem('ignoreHeight');
-            const savedIgnoreMatchDiff = sessionStorage.getItem('ignoreMatchDiff');
-            const savedRequireEngulfing = sessionStorage.getItem('requireEngulfing');
+            const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
@@ -1047,6 +1084,10 @@
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
             const savedMinUpperWickSell = sessionStorage.getItem('minUpperWickSell');
+            const savedMinUpperWickBuy = sessionStorage.getItem('minUpperWickBuy');
+            const savedMinLowerWickSell = sessionStorage.getItem('minLowerWickSell');
+            const savedMatchingDiffBuy = sessionStorage.getItem('matchingDiffBuy');
+            const savedMatchingDiffSell = sessionStorage.getItem('matchingDiffSell');
             const savedTradeHistory = sessionStorage.getItem('tradeHistory');
             const savedStats = sessionStorage.getItem('tradeStats');
 
@@ -1066,20 +1107,8 @@
                 document.getElementById('zeroClosingFilter').checked = savedZeroFilter === 'true';
             }
 
-            if (savedIgnoreWickPercent) {
-                document.getElementById('ignoreWickPercent').checked = savedIgnoreWickPercent === 'true';
-            }
-
-            if (savedIgnoreHeight) {
-                document.getElementById('ignoreHeight').checked = savedIgnoreHeight === 'true';
-            }
-
-            if (savedIgnoreMatchDiff) {
-                document.getElementById('ignoreMatchDiff').checked = savedIgnoreMatchDiff === 'true';
-            }
-
-            if (savedRequireEngulfing) {
-                document.getElementById('requireEngulfing').checked = savedRequireEngulfing === 'true';
+            if (savedIgnoreHeightFilter) {
+                document.getElementById('ignoreHeightFilter').checked = savedIgnoreHeightFilter === 'true';
             }
 
             if (savedStake) {
@@ -1110,6 +1139,22 @@
                 document.getElementById('minUpperWickSell').value = savedMinUpperWickSell;
             }
 
+            if (savedMinUpperWickBuy) {
+                document.getElementById('minUpperWickBuy').value = savedMinUpperWickBuy;
+            }
+
+            if (savedMinLowerWickSell) {
+                document.getElementById('minLowerWickSell').value = savedMinLowerWickSell;
+            }
+
+            if (savedMatchingDiffBuy) {
+                document.getElementById('matchingDiffBuy').value = savedMatchingDiffBuy;
+            }
+
+            if (savedMatchingDiffSell) {
+                document.getElementById('matchingDiffSell').value = savedMatchingDiffSell;
+            }
+
             if (savedTradeHistory) {
                 tradeHistory = JSON.parse(savedTradeHistory);
                 updateTradeHistoryTable();
@@ -1127,10 +1172,7 @@
             sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
             sessionStorage.setItem('trendFilter', document.getElementById('trendFilter').checked);
             sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
-            sessionStorage.setItem('ignoreWickPercent', document.getElementById('ignoreWickPercent').checked);
-            sessionStorage.setItem('ignoreHeight', document.getElementById('ignoreHeight').checked);
-            sessionStorage.setItem('ignoreMatchDiff', document.getElementById('ignoreMatchDiff').checked);
-            sessionStorage.setItem('requireEngulfing', document.getElementById('requireEngulfing').checked);
+            sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
             sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
             sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
             sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
@@ -1138,11 +1180,15 @@
             sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
             sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
             sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
+            sessionStorage.setItem('minUpperWickBuy', document.getElementById('minUpperWickBuy').value);
+            sessionStorage.setItem('minLowerWickSell', document.getElementById('minLowerWickSell').value);
+            sessionStorage.setItem('matchingDiffBuy', document.getElementById('matchingDiffBuy').value);
+            sessionStorage.setItem('matchingDiffSell', document.getElementById('matchingDiffSell').value);
             sessionStorage.setItem('tradeHistory', JSON.stringify(tradeHistory));
             sessionStorage.setItem('tradeStats', JSON.stringify(tradeStats));
         }
 
-        // Render markets with status dots
+        // Render markets with subscription indicators
         function renderMarkets() {
             const grid = document.getElementById('marketsGrid');
             grid.innerHTML = '';
@@ -1151,14 +1197,14 @@
                 const div = document.createElement('div');
                 div.className = 'market-item';
                 div.innerHTML = `
-                    <div class="market-left">
-                        <div class="market-status-dot" id="status-dot-${symbol}"></div>
-                        <span class="market-name">${name}</span>
+                    <span class="market-name">${name}</span>
+                    <div class="market-controls">
+                        <div class="subscription-indicator" data-indicator="${symbol}"></div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" ${activeMarkets[symbol] ? 'checked' : ''} data-symbol="${symbol}">
+                            <span class="slider"></span>
+                        </label>
                     </div>
-                    <label class="toggle-switch">
-                        <input type="checkbox" ${activeMarkets[symbol] ? 'checked' : ''} data-symbol="${symbol}">
-                        <span class="slider"></span>
-                    </label>
                 `;
                 grid.appendChild(div);
 
@@ -1174,8 +1220,6 @@
                         } else {
                             unsubscribeFromMarket(symbol);
                         }
-                    } else if (!e.target.checked) {
-                        updateMarketStatusDot(symbol, 'inactive');
                     }
                 });
             });
@@ -1214,7 +1258,7 @@
                 };
 
                 ws.onerror = (error) => {
-                    logActivity('WebSocket error: ' + error.message, 'error');
+                    logActivity('WebSocket error', 'error');
                     updateConnectionBadge(false);
                     reject(error);
                 };
@@ -1223,11 +1267,14 @@
                     logActivity('WebSocket disconnected', 'error');
                     updateConnectionBadge(false);
                     
+                    // Clear all subscription indicators
                     Object.keys(markets).forEach(symbol => {
-                        updateMarketStatusDot(symbol, 'inactive');
+                        updateSubscriptionIndicator(symbol, 'disconnected');
                     });
                     
-                    stopSessionTimer();
+                    // Clear subscription tracking
+                    marketSubscriptions = {};
+                    pendingSubscriptions = {};
                     
                     if (isLoggedIn) {
                         setTimeout(() => {
@@ -1237,13 +1284,12 @@
                                 connectWebSocket(savedToken)
                                     .then(() => {
                                         logActivity('Reconnected successfully', 'success');
-                                        startSessionTimer();
                                         if (isAutoTrading) {
                                             subscribeToActiveMarkets();
                                         }
                                     })
                                     .catch(err => {
-                                        logActivity('Reconnection failed: ' + err.message, 'error');
+                                        logActivity('Reconnection failed', 'error');
                                     });
                             }
                         }, 3000);
@@ -1258,13 +1304,10 @@
                 if (data.error.code !== 'AlreadySubscribed') {
                     logActivity('API Error: ' + data.error.message, 'error');
                     
-                    if (data.echo_req && data.echo_req.ticks_history) {
-                        const symbol = data.echo_req.ticks_history;
-                        if (pendingSubscriptions.has(symbol)) {
-                            pendingSubscriptions.delete(symbol);
-                            updateMarketStatusDot(symbol, 'failed');
-                            logActivity(`Subscription failed for ${markets[symbol]}: ${data.error.message}`, 'error');
-                        }
+                    if (data.echo_req && data.echo_req.ticks) {
+                        const symbol = data.echo_req.ticks;
+                        delete pendingSubscriptions[symbol];
+                        updateSubscriptionIndicator(symbol, 'disconnected');
                     }
                 }
                 if (reject && data.error.code !== 'AlreadySubscribed') {
@@ -1297,35 +1340,56 @@
                 document.getElementById('accountBalance').textContent = parseFloat(accountInfo.balance).toFixed(2);
             }
 
-            if (data.msg_type === 'candles' && data.candles) {
-                let symbol = null;
-                
-                if (data.echo_req && data.echo_req.ticks_history) {
-                    symbol = data.echo_req.ticks_history;
-                }
-                
-                if (symbol && pendingSubscriptions.has(symbol)) {
-                    pendingSubscriptions.delete(symbol);
-                    marketSubscriptions[symbol] = data.subscription.id;
-                    processCandles(symbol, data.candles);
-                    updateMarketStatusDot(symbol, 'subscribed');
-                    logActivity(`✓ ${markets[symbol]} subscribed successfully`, 'success');
-                } else if (symbol && marketSubscriptions[symbol]) {
-                    processCandles(symbol, data.candles);
-                }
-            }
+            if (data.msg_type === 'tick' && data.tick) {
+                const symbol = data.tick.symbol;
+                if (!activeMarkets[symbol]) return;
 
-            if (data.msg_type === 'ohlc' && data.ohlc) {
-                let symbol = null;
-                
-                if (data.echo_req && data.echo_req.ticks_history) {
-                    symbol = data.echo_req.ticks_history;
-                } else if (data.subscription && data.subscription.id) {
-                    symbol = findSymbolBySubscriptionId(data.subscription.id);
+                const epoch = Math.floor(data.tick.epoch);
+                const quote = parseFloat(data.tick.quote);
+                const minute = Math.floor(epoch / 60) * 60;
+
+                if (currentMinute[symbol] === undefined || minute > currentMinute[symbol]) {
+                    if (currentOHLC[symbol] !== undefined) {
+                        const completedCandle = {
+                            time: currentMinute[symbol],
+                            open: currentOHLC[symbol].open,
+                            high: currentOHLC[symbol].high,
+                            low: currentOHLC[symbol].low,
+                            close: currentOHLC[symbol].close
+                        };
+                        candleData[symbol].push(completedCandle);
+                        if (candleData[symbol].length > 100) {
+                            candleData[symbol].shift();
+                        }
+                        
+                        updateCandleCounter();
+                        
+                        const trendFilter = document.getElementById('trendFilter').checked;
+                        const requiredCandles = trendFilter ? 52 : 3;
+                        
+                        if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
+                            checkForSignals(symbol);
+                        }
+                    }
+
+                    currentMinute[symbol] = minute;
+                    currentOHLC[symbol] = {
+                        open: quote,
+                        high: quote,
+                        low: quote,
+                        close: quote
+                    };
+                } else {
+                    currentOHLC[symbol].high = Math.max(currentOHLC[symbol].high, quote);
+                    currentOHLC[symbol].low = Math.min(currentOHLC[symbol].low, quote);
+                    currentOHLC[symbol].close = quote;
                 }
-                
-                if (symbol) {
-                    updateCandle(symbol, data.ohlc);
+
+                if (data.subscription && data.subscription.id && !marketSubscriptions[symbol]) {
+                    marketSubscriptions[symbol] = data.subscription.id;
+                    delete pendingSubscriptions[symbol];
+                    updateSubscriptionIndicator(symbol, 'subscribed');
+                    logActivity(`${markets[symbol]} subscribed successfully`, 'success');
                 }
             }
 
@@ -1339,29 +1403,22 @@
             }
 
             if (data.msg_type === 'buy') {
-                if (data.buy.contract_id) {
-                    const reqId = data.req_id;
+                if (data.buy && data.buy.contract_id) {
+                    const proposalId = data.echo_req?.buy;
+                    const tradeInfo = pendingTrades.get(proposalId);
                     
-                    if (buyRequestMap.has(reqId)) {
-                        const tradeContext = buyRequestMap.get(reqId);
-                        
-                        pendingTrades.set(data.buy.contract_id, {
-                            symbol: tradeContext.symbol,
-                            type: tradeContext.type,
-                            stake: tradeContext.stake,
-                            candle_time: tradeContext.candleKey
-                        });
-                        
-                        buyRequestMap.delete(reqId);
-                        
-                        ws.send(JSON.stringify({
-                            proposal_open_contract: 1,
-                            contract_id: data.buy.contract_id,
-                            subscribe: 1
-                        }));
-                        
-                        logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
+                    if (tradeInfo) {
+                        pendingTrades.delete(proposalId);
+                        pendingTrades.set(data.buy.contract_id, tradeInfo);
                     }
+                    
+                    ws.send(JSON.stringify({
+                        proposal_open_contract: 1,
+                        contract_id: data.buy.contract_id,
+                        subscribe: 1
+                    }));
+                    
+                    logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
                 }
             }
 
@@ -1382,6 +1439,7 @@
 
         // Find symbol by subscription ID
         function findSymbolBySubscriptionId(id) {
+            if (!id) return null;
             for (const [symbol, subId] of Object.entries(marketSubscriptions)) {
                 if (subId === id) {
                     return symbol;
@@ -1398,9 +1456,8 @@
                 return;
             }
 
-            const loginBtn = document.getElementById('loginBtn');
-            loginBtn.disabled = true;
-            loginBtn.textContent = 'Connecting...';
+            document.getElementById('loginBtn').disabled = true;
+            document.getElementById('loginBtn').textContent = 'Connecting...';
 
             try {
                 await connectWebSocket(token);
@@ -1416,8 +1473,8 @@
                 logActivity('Login successful', 'success');
             } catch (error) {
                 logActivity('Login failed: ' + error.message, 'error');
-                loginBtn.disabled = false;
-                loginBtn.textContent = 'Login';
+                document.getElementById('loginBtn').disabled = false;
+                document.getElementById('loginBtn').textContent = 'Login';
                 updateConnectionBadge(false);
             }
         });
@@ -1437,15 +1494,6 @@
             stopSessionTimer();
             updateConnectionBadge(false);
 
-            Object.keys(markets).forEach(symbol => {
-                updateMarketStatusDot(symbol, 'inactive');
-            });
-
-            marketSubscriptions = {};
-            pendingSubscriptions.clear();
-            initializedMarkets.clear();
-            botStartTime = null;
-
             document.getElementById('apiToken').value = '';
             sessionStorage.removeItem('derivToken');
 
@@ -1453,10 +1501,8 @@
             document.getElementById('accountInfo').classList.add('hidden');
             document.getElementById('timerDisplay').classList.add('hidden');
             document.getElementById('autoTradeBtn').disabled = true;
-
-            const loginBtn = document.getElementById('loginBtn');
-            loginBtn.disabled = false;
-            loginBtn.textContent = 'Login';
+            document.getElementById('loginBtn').disabled = false;
+            document.getElementById('loginBtn').textContent = 'Login';
 
             logActivity('Logged out successfully - Token cleared', 'success');
         });
@@ -1491,32 +1537,31 @@
             }
 
             if (marketSubscriptions[symbol]) {
-                logActivity(`Already monitoring ${markets[symbol]}`, 'info');
-                updateMarketStatusDot(symbol, 'subscribed');
+                logActivity(`Already subscribed to ${markets[symbol]}`, 'info');
+                updateSubscriptionIndicator(symbol, 'subscribed');
                 return;
             }
 
-            updateMarketStatusDot(symbol, 'subscribing');
-            pendingSubscriptions.set(symbol, Date.now());
+            if (pendingSubscriptions[symbol]) {
+                logActivity(`Already subscribing to ${markets[symbol]}`, 'info');
+                return;
+            }
+
+            pendingSubscriptions[symbol] = true;
+            updateSubscriptionIndicator(symbol, 'subscribing');
 
             const subscribeMsg = {
-                ticks_history: symbol,
-                adjust_start_time: 1,
-                count: 100,
-                end: 'latest',
-                start: 1,
-                style: 'candles',
-                granularity: 60,
+                ticks: symbol,
                 subscribe: 1
             };
 
             ws.send(JSON.stringify(subscribeMsg));
-            logActivity(`Subscribing to ${markets[symbol]}...`);
+            logActivity(`Subscribing to ${markets[symbol]}...`, 'info');
 
             setTimeout(() => {
-                if (pendingSubscriptions.has(symbol) && !marketSubscriptions[symbol]) {
-                    pendingSubscriptions.delete(symbol);
-                    updateMarketStatusDot(symbol, 'failed');
+                if (pendingSubscriptions[symbol] && !marketSubscriptions[symbol]) {
+                    delete pendingSubscriptions[symbol];
+                    updateSubscriptionIndicator(symbol, 'disconnected');
                     logActivity(`Subscription timeout for ${markets[symbol]}`, 'error');
                 }
             }, 10000);
@@ -1529,20 +1574,37 @@
                 ws.send(JSON.stringify({ forget: marketSubscriptions[symbol] }));
                 delete marketSubscriptions[symbol];
                 candleData[symbol] = [];
+                currentOHLC[symbol] = undefined;
+                currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
-                initializedMarkets.delete(symbol);
-                updateMarketStatusDot(symbol, 'inactive');
+                updateSubscriptionIndicator(symbol, 'disconnected');
                 logActivity(`Unsubscribed from ${markets[symbol]}`);
             }
+
+            if (pendingSubscriptions[symbol]) {
+                delete pendingSubscriptions[symbol];
+                updateSubscriptionIndicator(symbol, 'disconnected');
+            }
+            
+            updateCandleCounter();
         }
 
         // Subscribe to all active markets
         function subscribeToActiveMarkets() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                logActivity('Cannot subscribe: WebSocket not connected', 'error');
+                return;
+            }
+
+            let subscribeCount = 0;
             Object.keys(activeMarkets).forEach(symbol => {
                 if (activeMarkets[symbol]) {
                     subscribeToMarket(symbol);
+                    subscribeCount++;
                 }
             });
+
+            logActivity(`Subscribing to ${subscribeCount} active markets...`, 'info');
         }
 
         // Unsubscribe from all markets
@@ -1550,56 +1612,10 @@
             Object.keys(marketSubscriptions).forEach(symbol => {
                 unsubscribeFromMarket(symbol);
             });
-        }
-
-        // Process candles
-        function processCandles(symbol, candles) {
-            candleData[symbol] = candles.map(c => ({
-                time: c.epoch,
-                open: parseFloat(c.open),
-                high: parseFloat(c.high),
-                low: parseFloat(c.low),
-                close: parseFloat(c.close)
-            }));
-            
-            // Mark this market as initialized
-            initializedMarkets.add(symbol);
-            
-            logActivity(`Loaded ${candles.length} candles for ${markets[symbol]} - Ready for signals`, 'success');
-        }
-
-        // Update candle
-        function updateCandle(symbol, ohlc) {
-            if (!candleData[symbol]) candleData[symbol] = [];
-
-            const newCandle = {
-                time: ohlc.epoch,
-                open: parseFloat(ohlc.open),
-                high: parseFloat(ohlc.high),
-                low: parseFloat(ohlc.low),
-                close: parseFloat(ohlc.close)
-            };
-
-            const lastCandle = candleData[symbol][candleData[symbol].length - 1];
-            
-            if (lastCandle && lastCandle.time === newCandle.time) {
-                // Update the current (ongoing) candle
-                candleData[symbol][candleData[symbol].length - 1] = newCandle;
-
-                // ONLY check for signals when the current candle updates (live ticks)
-                if (isAutoTrading && 
-                    initializedMarkets.has(symbol) && 
-                    candleData[symbol].length >= 52) {
-                    
-                    checkForSignals(symbol);
-                }
-            } else {
-                // NEW CANDLE STARTED - just add it, NO signal check here
-                candleData[symbol].push(newCandle);
-                if (candleData[symbol].length > 100) {
-                    candleData[symbol].shift();
-                }
-            }
+            Object.keys(pendingSubscriptions).forEach(symbol => {
+                delete pendingSubscriptions[symbol];
+                updateSubscriptionIndicator(symbol, 'disconnected');
+            });
         }
 
         // Calculate EMA
@@ -1618,7 +1634,10 @@
 
         // Check for trading signals
         function checkForSignals(symbol) {
-            if (candleData[symbol].length < 52) return;
+            const trendFilter = document.getElementById('trendFilter').checked;
+            const requiredCandles = trendFilter ? 52 : 3;
+            
+            if (candleData[symbol].length < requiredCandles) return;
 
             const candles = candleData[symbol];
             const lastCandle = candles[candles.length - 2];
@@ -1626,142 +1645,151 @@
 
             if (!lastCandle || !prevCandle) return;
 
+            const candle_start_time = lastCandle.time;
+            if (candle_start_time < activation_time) {
+                return;
+            }
+
             const candleKey = `${lastCandle.time}`;
             if (tradedCandles[symbol].has(candleKey)) {
                 return;
             }
 
-            // Get all filter states
-            const trendFilter = document.getElementById('trendFilter').checked;
             const zeroClosingFilter = document.getElementById('zeroClosingFilter').checked;
-            const ignoreWickPercent = document.getElementById('ignoreWickPercent').checked;
-            const ignoreHeight = document.getElementById('ignoreHeight').checked;
-            const ignoreMatchDiff = document.getElementById('ignoreMatchDiff').checked;
-            const requireEngulfing = document.getElementById('requireEngulfing').checked;
-
+            const ignoreHeightFilter = document.getElementById('ignoreHeightFilter').checked;
             const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value) / 100;
             const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value) / 100;
+            const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value) / 100;
+            const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value) / 100;
+            const matchingDiffBuy = parseFloat(document.getElementById('matchingDiffBuy').value) / 100;
+            const matchingDiffSell = parseFloat(document.getElementById('matchingDiffSell').value) / 100;
 
             let ema50 = null;
             if (trendFilter) {
                 ema50 = calculateEMA(candles.slice(0, -1), 50);
             }
 
-            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, minLowerWickBuy, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing);
-            
+            const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, minLowerWickBuy, minUpperWickBuy, matchingDiffBuy);
             if (buySignal) {
                 if (trendFilter && ema50) {
                     if (lastCandle.close > ema50) {
-                        addSignal(symbol, 'Tweezers Bottom BUY', 'buy');
+                        addSignal(symbol, 'Tweezers Bottom BUY');
                         executeTrade(symbol, 'CALL', candleKey);
                     }
                 } else {
-                    addSignal(symbol, 'Tweezers Bottom BUY', 'buy');
+                    addSignal(symbol, 'Tweezers Bottom BUY');
                     executeTrade(symbol, 'CALL', candleKey);
                 }
             }
 
-            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, minUpperWickSell, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing);
-            
+            const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, minUpperWickSell, minLowerWickSell, matchingDiffSell);
             if (sellSignal) {
                 if (trendFilter && ema50) {
                     if (lastCandle.close < ema50) {
-                        addSignal(symbol, 'Tweezers Top SELL', 'sell');
+                        addSignal(symbol, 'Tweezers Top SELL');
                         executeTrade(symbol, 'PUT', candleKey);
                     }
                 } else {
-                    addSignal(symbol, 'Tweezers Top SELL', 'sell');
+                    addSignal(symbol, 'Tweezers Top SELL');
                     executeTrade(symbol, 'PUT', candleKey);
                 }
             }
         }
 
-        // FIXED: Check Tweezers Bottom pattern
-        function checkTweezersBottom(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing) {
-            // 1. Candle 1 must be RED
+        // Check Tweezers Bottom pattern
+        function checkTweezersBottom(candle1, candle2, zeroClosing, ignoreHeight, minLowerWickPercent, minUpperWickPercent, matchingDiff) {
             const isCandle1Red = candle1.close < candle1.open;
             if (!isCandle1Red) return false;
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
+            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
-            
-            // 2. CHECK WICK % on the First Candle ONLY (The Signal Candle)
-            if (candle1LowerWick / candle1Range < minWickPercent) return false;
+            const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
 
-            // 3. Zero Closing Filter (Optional Strict Mode)
+            if (candle1LowerWick / candle1Range < minLowerWickPercent) return false;
+
             if (zeroClosing) {
-                const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
-                if (candle1UpperWick / candle1Range > 0.01) return false; // Must be shaven top
+                if (candle1UpperWick / candle1Range > 0.01) return false;
+            } else {
+                if (candle1UpperWick / candle1Range > minUpperWickPercent) return false;
             }
 
-            // 4. Candle 2 must be GREEN
             const isCandle2Green = candle2.close > candle2.open;
             if (!isCandle2Green) return false;
-            
-            // 5. Check Matching Lows (Unless Ignored)
-            if (!ignoreMatchDiff) {
-                const lowDiff = Math.abs(candle1.low - candle2.low);
-                // Use a dynamic tolerance based on price (0.01%) instead of hardcoded 0.003
-                if (lowDiff / candle1.low > 0.0001 && lowDiff > 0.05) return false; 
+
+            const candle2Range = candle2.high - candle2.low;
+            if (candle2Range === 0) return false;
+
+            const candle2Body = Math.abs(candle2.close - candle2.open);
+            const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
+            const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
+
+            if (candle2LowerWick / candle2Range < minLowerWickPercent) return false;
+
+            if (zeroClosing) {
+                if (candle2UpperWick / candle2Range > 0.01) return false;
+            } else {
+                if (candle2UpperWick / candle2Range > minUpperWickPercent) return false;
             }
 
-            // 6. Height Check (If NOT ignored, enforce strict engulfing size)
-            // If Ignore Height is ON, we skip this check entirely.
-            if (!ignoreHeight) {
-                const candle1Body = Math.abs(candle1.close - candle1.open);
-                const candle2Body = Math.abs(candle2.close - candle2.open);
-                if (candle2Body < candle1Body * 0.5) return false;
-            }
+            const lowDiff = Math.abs(candle1.low - candle2.low) / candle1.low;
+            if (lowDiff > matchingDiff) return false;
 
-            // 7. Strict Engulfing Toggle
-            if (requireEngulfing) {
+            if (ignoreHeight) {
+                return true;
+            } else {
                 if (candle2.close < candle1.high) return false;
             }
 
             return true;
         }
 
-        // FIXED: Check Tweezers Top pattern
-        function checkTweezersTop(candle1, candle2, zeroClosing, minWickPercent, ignoreWickPercent, ignoreHeight, ignoreMatchDiff, requireEngulfing) {
-            // 1. Candle 1 must be GREEN
+        // Check Tweezers Top pattern
+        function checkTweezersTop(candle1, candle2, zeroClosing, ignoreHeight, minUpperWickPercent, minLowerWickPercent, matchingDiff) {
             const isCandle1Green = candle1.close > candle1.open;
             if (!isCandle1Green) return false;
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
+            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
+            const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
 
-            // 2. CHECK WICK % on the First Candle ONLY
-            if (candle1UpperWick / candle1Range < minWickPercent) return false;
+            if (candle1UpperWick / candle1Range < minUpperWickPercent) return false;
 
-            // 3. Zero Closing Filter
             if (zeroClosing) {
-                const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
-                if (candle1LowerWick / candle1Range > 0.01) return false; // Must be shaven bottom
+                if (candle1LowerWick / candle1Range > 0.01) return false;
+            } else {
+                if (candle1LowerWick / candle1Range > minLowerWickPercent) return false;
             }
 
-            // 4. Candle 2 must be RED
             const isCandle2Red = candle2.close < candle2.open;
             if (!isCandle2Red) return false;
 
-            // 5. Check Matching Highs (Unless Ignored)
-            if (!ignoreMatchDiff) {
-                const highDiff = Math.abs(candle1.high - candle2.high);
-                if (highDiff / candle1.high > 0.0001 && highDiff > 0.05) return false;
+            const candle2Range = candle2.high - candle2.low;
+            if (candle2Range === 0) return false;
+
+            const candle2Body = Math.abs(candle2.close - candle2.open);
+            const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
+            const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
+
+            if (candle2UpperWick / candle2Range < minUpperWickPercent) return false;
+
+            if (zeroClosing) {
+                if (candle2LowerWick / candle2Range > 0.01) return false;
+            } else {
+                if (candle2LowerWick / candle2Range > minLowerWickPercent) return false;
             }
 
-            // 6. Height Check
-            if (!ignoreHeight) {
-                const candle1Body = Math.abs(candle1.close - candle1.open);
-                const candle2Body = Math.abs(candle2.close - candle2.open);
-                if (candle2Body < candle1Body * 0.5) return false;
-            }
+            const highDiff = Math.abs(candle1.high - candle2.high) / candle1.high;
+            if (highDiff > matchingDiff) return false;
 
-            // 7. Strict Engulfing Toggle
-            if (requireEngulfing) {
+            if (ignoreHeight) {
+                return true;
+            } else {
                 if (candle2.close > candle1.low) return false;
             }
 
@@ -1770,7 +1798,7 @@
 
         // Add signal to monitor
         let signalCounter = 0;
-        function addSignal(symbol, pattern, signalType) {
+        function addSignal(symbol, pattern) {
             const container = document.getElementById('signalsContainer');
             
             if (isFirstSignal) {
@@ -1782,7 +1810,7 @@
             
             const time = new Date().toLocaleTimeString();
             const signalDiv = document.createElement('div');
-            signalDiv.className = `signal-item ${signalType}`;
+            signalDiv.className = 'signal-item';
             signalDiv.id = signalId;
             signalDiv.innerHTML = `<div class="signal-text">[${time}] ${markets[symbol]} - ${pattern}</div>`;
             
@@ -1806,7 +1834,7 @@
             const durationType = document.getElementById('durationType').value;
             const durationValue = parseInt(document.getElementById('durationValue').value);
 
-            const proposalReqId = ++requestIdCounter;
+            const reqId = ++requestIdCounter;
 
             const proposal = {
                 proposal: 1,
@@ -1817,7 +1845,7 @@
                 duration: durationValue,
                 duration_unit: durationType,
                 symbol: symbol,
-                req_id: proposalReqId
+                req_id: reqId
             };
 
             try {
@@ -1825,32 +1853,32 @@
                 
                 const proposalResponse = await new Promise((resolve, reject) => {
                     const timeout = setTimeout(() => {
-                        pendingProposals.delete(proposalReqId);
+                        pendingProposals.delete(reqId);
                         reject(new Error('Proposal timeout'));
                     }, 5000);
                     
-                    pendingProposals.set(proposalReqId, { resolve, reject, timeout });
+                    pendingProposals.set(reqId, { resolve, reject, timeout });
                 });
 
-                if (pendingProposals.has(proposalReqId)) {
-                    clearTimeout(pendingProposals.get(proposalReqId).timeout);
-                    pendingProposals.delete(proposalReqId);
+                if (pendingProposals.has(reqId)) {
+                    clearTimeout(pendingProposals.get(reqId).timeout);
+                    pendingProposals.delete(reqId);
                 }
 
                 if (proposalResponse.proposal) {
-                    const buyReqId = ++requestIdCounter;
-                    
-                    buyRequestMap.set(buyReqId, {
+                    const proposalId = proposalResponse.proposal.id;
+                    const tradeInfo = {
                         symbol: symbol,
                         type: type,
                         stake: stake,
-                        candleKey: candleKey
-                    });
+                        candle_time: candleKey
+                    };
+                    
+                    pendingTrades.set(proposalId, tradeInfo);
                     
                     ws.send(JSON.stringify({
-                        buy: proposalResponse.proposal.id,
-                        price: stake,
-                        req_id: buyReqId
+                        buy: proposalId,
+                        price: stake
                     }));
 
                     tradedCandles[symbol].add(candleKey);
@@ -1957,12 +1985,20 @@
                 return;
             }
 
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                logActivity('WebSocket not connected. Please check connection.', 'error');
+                return;
+            }
+
             isAutoTrading = true;
             isFirstSignal = true;
-            botStartTime = Date.now();
-            initializedMarkets.clear();
             
-            Object.keys(tradedCandles).forEach(symbol => {
+            activation_time = Math.floor(Date.now() / 1000);
+            
+            Object.keys(markets).forEach(symbol => {
+                candleData[symbol] = [];
+                currentOHLC[symbol] = undefined;
+                currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
             });
             
@@ -1976,17 +2012,24 @@
             statusDot.className = 'pulse-dot active';
 
             const container = document.getElementById('signalsContainer');
-            container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Loading market data and waiting for fresh candles...</div></div>';
+            container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            logActivity('Auto trading started - Waiting for fresh candles before trading', 'success');
+            const trendFilter = document.getElementById('trendFilter').checked;
+            const requiredCandles = trendFilter ? 52 : 3;
+            
+            logActivity('Auto trading started', 'success');
+            logActivity(`Activation time set: ${new Date(activation_time * 1000).toLocaleTimeString()}`, 'info');
+            logActivity(`Waiting for ${requiredCandles} candles before analyzing (Trend Filter: ${trendFilter ? 'ON' : 'OFF'})`, 'info');
 
+            updateCandleCounter();
             subscribeToActiveMarkets();
         }
 
         // Stop auto trading
         function stopAutoTrading() {
             isAutoTrading = false;
-            botStartTime = null;
+            activation_time = 0;
+            
             document.getElementById('autoTradeBtn').textContent = 'Start Auto Trade';
             document.getElementById('autoTradeBtn').className = 'btn btn-success';
             
@@ -2002,6 +2045,8 @@
 
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Waiting for bot activation...</div></div>';
+            
+            document.getElementById('candleCounter').classList.add('hidden');
         }
 
         // Auto trade button
@@ -2027,7 +2072,13 @@
 
         // Save settings on change
         document.getElementById('trendFilter').addEventListener('change', () => {
-            logActivity(`Trend filter ${document.getElementById('trendFilter').checked ? 'enabled' : 'disabled'}`);
+            const enabled = document.getElementById('trendFilter').checked;
+            logActivity(`Trend filter ${enabled ? 'enabled' : 'disabled'}`);
+            if (isAutoTrading) {
+                const requiredCandles = enabled ? 52 : 3;
+                logActivity(`Required candles updated to ${requiredCandles}`, 'info');
+                updateCandleCounter();
+            }
             saveSettings();
         });
 
@@ -2036,23 +2087,8 @@
             saveSettings();
         });
 
-        document.getElementById('ignoreWickPercent').addEventListener('change', () => {
-            logActivity(`Ignore % filter ${document.getElementById('ignoreWickPercent').checked ? 'enabled' : 'disabled'}`);
-            saveSettings();
-        });
-
-        document.getElementById('ignoreHeight').addEventListener('change', () => {
-            logActivity(`Ignore height filter ${document.getElementById('ignoreHeight').checked ? 'enabled' : 'disabled'}`);
-            saveSettings();
-        });
-
-        document.getElementById('ignoreMatchDiff').addEventListener('change', () => {
-            logActivity(`Ignore match diff filter ${document.getElementById('ignoreMatchDiff').checked ? 'enabled' : 'disabled'}`);
-            saveSettings();
-        });
-
-        document.getElementById('requireEngulfing').addEventListener('change', () => {
-            logActivity(`Require Engulfing filter ${document.getElementById('requireEngulfing').checked ? 'enabled' : 'disabled'}`);
+        document.getElementById('ignoreHeightFilter').addEventListener('change', () => {
+            logActivity(`Ignore height filter ${document.getElementById('ignoreHeightFilter').checked ? 'enabled' : 'disabled'}`);
             saveSettings();
         });
 
@@ -2091,6 +2127,26 @@
             saveSettings();
         });
 
+        document.getElementById('minUpperWickBuy').addEventListener('change', () => {
+            logActivity(`Min upper wick (Buy) updated to ${document.getElementById('minUpperWickBuy').value}%`);
+            saveSettings();
+        });
+
+        document.getElementById('minLowerWickSell').addEventListener('change', () => {
+            logActivity(`Min lower wick (Sell) updated to ${document.getElementById('minLowerWickSell').value}%`);
+            saveSettings();
+        });
+
+        document.getElementById('matchingDiffBuy').addEventListener('change', () => {
+            logActivity(`Matching diff (Buy) updated to ${document.getElementById('matchingDiffBuy').value}%`);
+            saveSettings();
+        });
+
+        document.getElementById('matchingDiffSell').addEventListener('change', () => {
+            logActivity(`Matching diff (Sell) updated to ${document.getElementById('matchingDiffSell').value}%`);
+            saveSettings();
+        });
+
         // Validate input fields
         function validateInputs() {
             const stakeAmount = parseFloat(document.getElementById('stakeAmount').value);
@@ -2099,6 +2155,10 @@
             const durationValue = parseInt(document.getElementById('durationValue').value);
             const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value);
             const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value);
+            const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value);
+            const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value);
+            const matchingDiffBuy = parseFloat(document.getElementById('matchingDiffBuy').value);
+            const matchingDiffSell = parseFloat(document.getElementById('matchingDiffSell').value);
 
             if (stakeAmount < 0.35) {
                 logActivity('Stake amount must be at least 0.35', 'error');
@@ -2136,6 +2196,30 @@
                 return false;
             }
 
+            if (minUpperWickBuy < 0 || minUpperWickBuy > 100) {
+                logActivity('Min upper wick percentage must be between 0 and 100', 'error');
+                document.getElementById('minUpperWickBuy').value = 20;
+                return false;
+            }
+
+            if (minLowerWickSell < 0 || minLowerWickSell > 100) {
+                logActivity('Min lower wick percentage must be between 0 and 100', 'error');
+                document.getElementById('minLowerWickSell').value = 20;
+                return false;
+            }
+
+            if (matchingDiffBuy < 0 || matchingDiffBuy > 5) {
+                logActivity('Matching diff percentage must be between 0 and 5', 'error');
+                document.getElementById('matchingDiffBuy').value = 0.3;
+                return false;
+            }
+
+            if (matchingDiffSell < 0 || matchingDiffSell > 5) {
+                logActivity('Matching diff percentage must be between 0 and 5', 'error');
+                document.getElementById('matchingDiffSell').value = 0.3;
+                return false;
+            }
+
             return true;
         }
 
@@ -2146,24 +2230,27 @@
         document.getElementById('durationValue').addEventListener('blur', validateInputs);
         document.getElementById('minLowerWickBuy').addEventListener('blur', validateInputs);
         document.getElementById('minUpperWickSell').addEventListener('blur', validateInputs);
+        document.getElementById('minUpperWickBuy').addEventListener('blur', validateInputs);
+        document.getElementById('minLowerWickSell').addEventListener('blur', validateInputs);
+        document.getElementById('matchingDiffBuy').addEventListener('blur', validateInputs);
+        document.getElementById('matchingDiffSell').addEventListener('blur', validateInputs);
 
-        // Monitor WebSocket health
+        // Monitor WebSocket health with proper heartbeat
         function checkWebSocketHealth() {
             if (isLoggedIn && ws && ws.readyState === WebSocket.OPEN) {
                 const timeSinceLastMessage = Date.now() - lastHeartbeat;
                 
                 if (timeSinceLastMessage > 30000) {
                     ws.send(JSON.stringify({ ping: 1 }));
-                    logActivity('Sending heartbeat ping...', 'info');
                 }
 
                 if (timeSinceLastMessage > 60000) {
                     logActivity('No response from server. Reconnecting...', 'error');
                     const token = sessionStorage.getItem('derivToken');
-                    if (token) {
+                    if (token && ws) {
                         ws.close();
                         connectWebSocket(token).catch(err => {
-                            logActivity('Reconnection failed: ' + err.message, 'error');
+                            logActivity('Reconnection failed', 'error');
                         });
                     }
                 }
@@ -2172,7 +2259,38 @@
 
         setInterval(checkWebSocketHealth, 10000);
 
-        // Error boundaries
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveSettings();
+                logActivity('Settings saved manually', 'success');
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
+                e.preventDefault();
+                if (isLoggedIn && document.getElementById('autoTradeBtn').disabled === false) {
+                    if (isAutoTrading) {
+                        stopAutoTrading();
+                    } else {
+                        startAutoTrading();
+                    }
+                }
+            }
+        });
+
+        // Add visual feedback for connection status
+        function updateConnectionStatus() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                document.body.style.borderTop = '3px solid #ff4757';
+            } else {
+                document.body.style.borderTop = '3px solid #2ecc71';
+            }
+        }
+
+        setInterval(updateConnectionStatus, 1000);
+
+        // Add error boundary for unexpected errors
         window.addEventListener('error', (e) => {
             logActivity(`Unexpected error: ${e.message}`, 'error');
             console.error('Error details:', e);
@@ -2183,7 +2301,7 @@
             console.error('Promise rejection details:', e);
         });
 
-        // Export trade history function
+        // Function to export trade history
         window.exportTradeHistory = function() {
             if (tradeHistory.length === 0) {
                 logActivity('No trade history to export', 'error');
@@ -2213,7 +2331,7 @@
             logActivity('Trade history exported successfully', 'success');
         };
 
-        // Reset all settings function
+        // Function to reset all settings
         window.resetAllSettings = function() {
             if (confirm('Are you sure you want to reset all settings to default? This will clear all saved data including trade history.')) {
                 sessionStorage.clear();
@@ -2221,7 +2339,7 @@
             }
         };
 
-        // Tooltips
+        // Add tooltips for better UX
         const tooltips = {
             'stakeAmount': 'Amount to stake per trade (minimum 0.35)',
             'stopLoss': 'Stop trading when total loss reaches this amount',
@@ -2230,12 +2348,13 @@
             'durationValue': 'Number of units for trade duration',
             'minLowerWickBuy': 'Minimum lower wick percentage required for Buy signal (0-100%)',
             'minUpperWickSell': 'Minimum upper wick percentage required for Sell signal (0-100%)',
+            'minUpperWickBuy': 'Maximum upper wick percentage allowed for Buy signal (0-100%)',
+            'minLowerWickSell': 'Maximum lower wick percentage allowed for Sell signal (0-100%)',
+            'matchingDiffBuy': 'Maximum low matching difference for Buy signal (0-5%)',
+            'matchingDiffSell': 'Maximum high matching difference for Sell signal (0-5%)',
             'trendFilter': 'Only trade in the direction of 50 EMA trend',
-            'zeroClosingFilter': 'Only trade on perfect candle closes (no opposite wicks)',
-            'ignoreWickPercent': 'Ignore the opposite wick percentage requirement (upper for buy, lower for sell)',
-            'ignoreHeight': 'Allow confirmation candle to be shorter (min 50% of first candle body)',
-            'ignoreMatchDiff': 'Ignore the low/high match difference requirement',
-            'requireEngulfing': 'Require second candle to close beyond first candle body (strict breakout)'
+            'zeroClosingFilter': 'Only trade on perfect candle closes (minimal opposite wicks)',
+            'ignoreHeightFilter': 'Allow confirmation candle to be any height (less than, equal to, or greater than first candle)'
         };
 
         Object.entries(tooltips).forEach(([id, text]) => {
@@ -2245,57 +2364,7 @@
             }
         });
 
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                e.preventDefault();
-                saveSettings();
-                logActivity('Settings saved manually', 'success');
-            }
-
-            if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
-                e.preventDefault();
-                if (isLoggedIn && document.getElementById('autoTradeBtn').disabled === false) {
-                    if (isAutoTrading) {
-                        stopAutoTrading();
-                    } else {
-                        startAutoTrading();
-                    }
-                }
-            }
-        });
-
-        // Visual connection status
-        function updateConnectionStatus() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                document.body.style.borderTop = '3px solid #ff4757';
-            } else {
-                document.body.style.borderTop = '3px solid #2ecc71';
-            }
-        }
-
-        setInterval(updateConnectionStatus, 1000);
-
-        // Network status monitoring
-        window.addEventListener('online', () => {
-            logActivity('Network connection restored', 'success');
-            updateConnectionBadge(true);
-            if (isLoggedIn && (!ws || ws.readyState !== WebSocket.OPEN)) {
-                const token = sessionStorage.getItem('derivToken');
-                if (token) {
-                    connectWebSocket(token).catch(err => {
-                        logActivity('Reconnection failed: ' + err.message, 'error');
-                    });
-                }
-            }
-        });
-
-        window.addEventListener('offline', () => {
-            logActivity('Network connection lost!', 'error');
-            updateConnectionBadge(false);
-        });
-
-        // Responsive font sizing
+        // Add responsive font sizing
         function adjustFontSizes() {
             const width = window.innerWidth;
             const root = document.documentElement;
@@ -2311,6 +2380,25 @@
 
         window.addEventListener('resize', adjustFontSizes);
         adjustFontSizes();
+
+        // Add network status monitoring
+        window.addEventListener('online', () => {
+            logActivity('Network connection restored', 'success');
+            updateConnectionBadge(true);
+            if (isLoggedIn && (!ws || ws.readyState !== WebSocket.OPEN)) {
+                const token = sessionStorage.getItem('derivToken');
+                if (token) {
+                    connectWebSocket(token).catch(err => {
+                        logActivity('Reconnection failed', 'error');
+                    });
+                }
+            }
+        });
+
+        window.addEventListener('offline', () => {
+            logActivity('Network connection lost!', 'error');
+            updateConnectionBadge(false);
+        });
 
         // Initialize app
         loadSettings();
@@ -2331,12 +2419,12 @@
             saveSettings();
         });
 
-        // Log system information
+        // Log system information on startup
         logActivity(`Browser: ${navigator.userAgent}`, 'info');
         logActivity(`Screen resolution: ${window.screen.width}x${window.screen.height}`, 'info');
         logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
 
-        // Startup complete
+        // Log initial startup complete
         setTimeout(() => {
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
