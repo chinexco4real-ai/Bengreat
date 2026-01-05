@@ -580,6 +580,9 @@
 
         .history-table thead {
             background: #2a3250;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
 
         .history-table th {
@@ -599,8 +602,29 @@
         }
 
         .history-table-container {
-            max-height: 400px;
+            max-height: 500px;
             overflow-y: auto;
+            overflow-x: auto;
+            border-radius: 5px;
+        }
+
+        .history-table-container::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .history-table-container::-webkit-scrollbar-track {
+            background: #1e2749;
+            border-radius: 10px;
+        }
+
+        .history-table-container::-webkit-scrollbar-thumb {
+            background: #00d4ff;
+            border-radius: 10px;
+        }
+
+        .history-table-container::-webkit-scrollbar-thumb:hover {
+            background: #0099cc;
         }
 
         .result-win {
@@ -627,6 +651,20 @@
             padding: 15px;
             border-radius: 5px;
             font-family: 'Courier New', monospace;
+        }
+
+        .log-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .log-container::-webkit-scrollbar-track {
+            background: #1e2749;
+            border-radius: 10px;
+        }
+
+        .log-container::-webkit-scrollbar-thumb {
+            background: #00d4ff;
+            border-radius: 10px;
         }
 
         .log-entry {
@@ -731,6 +769,16 @@
             text-align: center;
             padding: 8px;
             background: rgba(241, 196, 15, 0.1);
+            border-radius: 5px;
+        }
+
+        .trade-count-display {
+            text-align: center;
+            font-size: 12px;
+            color: #8899aa;
+            margin-top: 10px;
+            padding: 8px;
+            background: rgba(0, 212, 255, 0.05);
             border-radius: 5px;
         }
     </style>
@@ -910,6 +958,7 @@
                 <h2 class="panel-title">📋 Trade History</h2>
                 <button class="btn btn-danger" id="clearHistoryBtn">Clear History</button>
             </div>
+            <div class="trade-count-display" id="tradeCountDisplay">Showing 0 of 0 trades</div>
             <div class="history-table-container">
                 <table class="history-table">
                     <thead>
@@ -988,6 +1037,11 @@
         let tradedCandles = {};
         let requestIdCounter = 0;
         let pendingProposals = new Map();
+        
+        // NEW: Time synchronization variables
+        let serverTimeOffset = 0;
+        let isTimeSynced = false;
+        let candleWatchdogTimer = null;
 
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
@@ -1068,6 +1122,20 @@
             }
             
             counterElement.classList.remove('hidden');
+        }
+
+        // Update trade count display
+        function updateTradeCountDisplay() {
+            const totalTrades = tradeHistory.length;
+            const displayElement = document.getElementById('tradeCountDisplay');
+            
+            if (totalTrades === 0) {
+                displayElement.textContent = 'No trades yet';
+            } else if (totalTrades <= 100) {
+                displayElement.textContent = `Showing all ${totalTrades} trade${totalTrades === 1 ? '' : 's'}`;
+            } else {
+                displayElement.textContent = `Showing latest 100 of ${totalTrades} total trades`;
+            }
         }
 
         // Load saved settings
@@ -1239,6 +1307,48 @@
             }
         }
 
+        // NEW: Function to safely close a candle from either Tick or Timer
+        function finalizeCandle(symbol, closeTime, closePrice) {
+            if (!currentOHLC[symbol]) return;
+
+            // Push the completed candle
+            const completedCandle = {
+                time: currentMinute[symbol],
+                open: currentOHLC[symbol].open,
+                high: currentOHLC[symbol].high,
+                low: currentOHLC[symbol].low,
+                close: currentOHLC[symbol].close
+            };
+
+            candleData[symbol].push(completedCandle);
+            
+            // Maintain buffer limit
+            if (candleData[symbol].length > 100) {
+                candleData[symbol].shift();
+            }
+
+            // Reset for the NEW candle
+            currentMinute[symbol] = closeTime;
+            
+            // The new candle opens at the exact price the old one closed (Gapless)
+            currentOHLC[symbol] = {
+                open: closePrice,
+                high: closePrice,
+                low: closePrice,
+                close: closePrice
+            };
+
+            updateCandleCounter();
+            
+            // Check for signals IMMEDIATELY upon close
+            const trendFilter = document.getElementById('trendFilter').checked;
+            const requiredCandles = trendFilter ? 52 : 3;
+            
+            if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
+                checkForSignals(symbol);
+            }
+        }
+
         // Connect to Deriv API
         function connectWebSocket(token) {
             return new Promise((resolve, reject) => {
@@ -1298,7 +1408,7 @@
             });
         }
 
-        // Handle WebSocket messages
+        // Handle WebSocket messages - UPDATED with time sync
         function handleWebSocketMessage(data, resolve, reject) {
             if (data.error) {
                 if (data.error.code !== 'AlreadySubscribed') {
@@ -1340,51 +1450,47 @@
                 document.getElementById('accountBalance').textContent = parseFloat(accountInfo.balance).toFixed(2);
             }
 
+            // UPDATED: Tick handler with time synchronization
             if (data.msg_type === 'tick' && data.tick) {
                 const symbol = data.tick.symbol;
                 if (!activeMarkets[symbol]) return;
 
-                const epoch = Math.floor(data.tick.epoch);
+                const epoch = data.tick.epoch;
                 const quote = parseFloat(data.tick.quote);
-                const minute = Math.floor(epoch / 60) * 60;
-
-                if (currentMinute[symbol] === undefined || minute > currentMinute[symbol]) {
-                    if (currentOHLC[symbol] !== undefined) {
-                        const completedCandle = {
-                            time: currentMinute[symbol],
-                            open: currentOHLC[symbol].open,
-                            high: currentOHLC[symbol].high,
-                            low: currentOHLC[symbol].low,
-                            close: currentOHLC[symbol].close
-                        };
-                        candleData[symbol].push(completedCandle);
-                        if (candleData[symbol].length > 100) {
-                            candleData[symbol].shift();
-                        }
-                        
-                        updateCandleCounter();
-                        
-                        const trendFilter = document.getElementById('trendFilter').checked;
-                        const requiredCandles = trendFilter ? 52 : 3;
-                        
-                        if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
-                            checkForSignals(symbol);
-                        }
-                    }
-
-                    currentMinute[symbol] = minute;
-                    currentOHLC[symbol] = {
-                        open: quote,
-                        high: quote,
-                        low: quote,
-                        close: quote
-                    };
+                const now = Date.now();
+                
+                // 1. TIME SYNC: Calculate difference between PC time and Server time
+                const calculatedOffset = now - (epoch * 1000);
+                if (!isTimeSynced) {
+                    serverTimeOffset = calculatedOffset;
+                    isTimeSynced = true;
                 } else {
+                    // Smooth the offset (10% new, 90% old) to reduce jitter
+                    serverTimeOffset = (serverTimeOffset * 0.9) + (calculatedOffset * 0.1);
+                }
+
+                const tickMinute = Math.floor(epoch / 60) * 60;
+
+                // Initialize if this is the first data point ever
+                if (currentMinute[symbol] === undefined) {
+                    currentMinute[symbol] = tickMinute;
+                    currentOHLC[symbol] = { open: quote, high: quote, low: quote, close: quote };
+                }
+
+                // 2. CHECK: Did we cross into a new minute?
+                if (tickMinute > currentMinute[symbol]) {
+                    // If the Watchdog hasn't closed it yet, close it now using this tick
+                    finalizeCandle(symbol, tickMinute, quote);
+                }
+
+                // 3. UPDATE: Update the currently running candle
+                if (currentOHLC[symbol]) {
                     currentOHLC[symbol].high = Math.max(currentOHLC[symbol].high, quote);
                     currentOHLC[symbol].low = Math.min(currentOHLC[symbol].low, quote);
                     currentOHLC[symbol].close = quote;
                 }
 
+                // Handle subscription confirmation
                 if (data.subscription && data.subscription.id && !marketSubscriptions[symbol]) {
                     marketSubscriptions[symbol] = data.subscription.id;
                     delete pendingSubscriptions[symbol];
@@ -1632,16 +1738,18 @@
             return ema;
         }
 
-        // Check for trading signals
+        // UPDATED: Check for trading signals with correct indices
         function checkForSignals(symbol) {
             const trendFilter = document.getElementById('trendFilter').checked;
-            const requiredCandles = trendFilter ? 52 : 3;
+            const requiredCandles = trendFilter ? 52 : 2;
             
             if (candleData[symbol].length < requiredCandles) return;
 
             const candles = candleData[symbol];
-            const lastCandle = candles[candles.length - 2];
-            const prevCandle = candles[candles.length - 3];
+            
+            // FIXED INDICES: Use the candle that JUST closed (-1) and the one before it (-2)
+            const lastCandle = candles[candles.length - 1];
+            const prevCandle = candles[candles.length - 2];
 
             if (!lastCandle || !prevCandle) return;
 
@@ -1960,14 +2068,20 @@
             
             if (tradeHistory.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #8899aa;">No trades yet</td></tr>';
+                updateTradeCountDisplay();
                 return;
             }
 
             tbody.innerHTML = '';
-            tradeHistory.slice(0, 10).forEach((trade, index) => {
+            
+            // Display all trades up to 100
+            const displayCount = Math.min(tradeHistory.length, 100);
+            
+            for (let i = 0; i < displayCount; i++) {
+                const trade = tradeHistory[i];
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${index + 1}</td>
+                    <td>${i + 1}</td>
                     <td>${trade.time}</td>
                     <td>${trade.market}</td>
                     <td>${trade.type}</td>
@@ -1975,10 +2089,12 @@
                     <td class="${trade.isWin ? 'result-win' : 'result-loss'}">${trade.result}</td>
                 `;
                 tbody.appendChild(row);
-            });
+            }
+            
+            updateTradeCountDisplay();
         }
 
-        // Start auto trading
+        // UPDATED: Start auto trading with watchdog timer
         function startAutoTrading() {
             if (!isLoggedIn) {
                 logActivity('Please login first', 'error');
@@ -2023,9 +2139,34 @@
 
             updateCandleCounter();
             subscribeToActiveMarkets();
+
+            // NEW: Add Watchdog Timer
+            if (candleWatchdogTimer) clearInterval(candleWatchdogTimer);
+            
+            // Run every 200ms to check if a minute has passed
+            candleWatchdogTimer = setInterval(() => {
+                if (!isTimeSynced) return;
+                
+                // Calculate "Server Time" based on our offset
+                const estimatedServerTime = Date.now() - serverTimeOffset;
+                const currentServerMinute = Math.floor(estimatedServerTime / 1000 / 60) * 60;
+
+                Object.keys(activeMarkets).forEach(symbol => {
+                    // Only check subscribed markets that have data
+                    if (!activeMarkets[symbol] || !marketSubscriptions[symbol]) return;
+                    if (currentMinute[symbol] === undefined) return;
+
+                    // If Server Time is effectively in the NEXT minute compared to our candle...
+                    if (currentServerMinute > currentMinute[symbol]) {
+                        // ...and we haven't received a tick yet, FORCE CLOSE IT.
+                        const lastPrice = currentOHLC[symbol].close;
+                        finalizeCandle(symbol, currentServerMinute, lastPrice);
+                    }
+                });
+            }, 200);
         }
 
-        // Stop auto trading
+        // UPDATED: Stop auto trading and clear watchdog
         function stopAutoTrading() {
             isAutoTrading = false;
             activation_time = 0;
@@ -2047,6 +2188,12 @@
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Waiting for bot activation...</div></div>';
             
             document.getElementById('candleCounter').classList.add('hidden');
+            
+            // Clear watchdog timer
+            if (candleWatchdogTimer) {
+                clearInterval(candleWatchdogTimer);
+                candleWatchdogTimer = null;
+            }
         }
 
         // Auto trade button
@@ -2429,6 +2576,7 @@
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
             logActivity('Tip: Use console command exportTradeHistory() to export trades', 'info');
+            logActivity('Speed optimization enabled: Watchdog timer active', 'success');
         }, 1000);
     </script>
 </body>
