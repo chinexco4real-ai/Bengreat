@@ -60,6 +60,11 @@
             color: #ff4757;
         }
 
+        .connection-badge.reconnecting {
+            border-color: #f39c12;
+            color: #f39c12;
+        }
+
         .connection-badge-dot {
             width: 10px;
             height: 10px;
@@ -73,6 +78,10 @@
 
         .connection-badge.disconnected .connection-badge-dot {
             background-color: #ff4757;
+        }
+
+        .connection-badge.reconnecting .connection-badge-dot {
+            background-color: #f39c12;
         }
 
         @keyframes badge-pulse {
@@ -917,9 +926,16 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">Trend Filter (EMA)</span>
+                        <span class="filter-label">RSI Filter (Oversold/Overbought)</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="trendFilter">
+                            <input type="checkbox" id="rsiFilter">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Trend Structure (HH+HL / LL+LH)</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="trendStructureFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -976,8 +992,20 @@
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">EMA Period</label>
-                        <input type="number" class="input-field" id="emaPeriod" value="50" min="5" max="200" step="1">
+                        <label class="input-label">RSI Period</label>
+                        <input type="number" class="input-field" id="rsiPeriod" value="14" min="5" max="50" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">RSI Oversold</label>
+                        <input type="number" class="input-field" id="rsiOversold" value="30" min="10" max="50" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">RSI Overbought</label>
+                        <input type="number" class="input-field" id="rsiOverbought" value="70" min="50" max="90" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Trend Lookback</label>
+                        <input type="number" class="input-field" id="trendLookback" value="5" min="3" max="20" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
@@ -1137,8 +1165,14 @@
         let isTimeSynced = false;
         let candleWatchdogTimer = null;
 
-        // EMA cache for optimization
-        let emaCache = {};
+        // RSI cache for optimization
+        let rsiCache = {};
+
+        // Auto-reconnect variables
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 10;
+        let reconnectTimeout = null;
+        let wasAutoTradingBeforeDisconnect = false;
 
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
@@ -1147,20 +1181,22 @@
             currentOHLC[symbol] = undefined;
             currentMinute[symbol] = undefined;
             tradedCandles[symbol] = new Set();
-            emaCache[symbol] = {};
+            rsiCache[symbol] = {};
         });
 
         // Update connection badge
-        function updateConnectionBadge(connected) {
+        function updateConnectionBadge(status) {
             const badge = document.getElementById('connectionBadge');
-            const status = document.getElementById('connectionStatus');
+            const statusText = document.getElementById('connectionStatus');
             
-            if (connected) {
-                badge.className = 'connection-badge connected';
-                status.textContent = 'Connected';
-            } else {
-                badge.className = 'connection-badge disconnected';
-                status.textContent = 'Disconnected';
+            badge.className = 'connection-badge ' + status;
+            
+            if (status === 'connected') {
+                statusText.textContent = 'Connected';
+            } else if (status === 'disconnected') {
+                statusText.textContent = 'Disconnected';
+            } else if (status === 'reconnecting') {
+                statusText.textContent = 'Reconnecting...';
             }
         }
 
@@ -1196,7 +1232,6 @@
             
             const conflicts = [];
             
-            // Check for Ignore Height + Length Filter conflict
             if (ignoreHeight && lengthFilter) {
                 conflicts.push('• "Ignore Height" and "Length Filter" are both enabled. These filters contradict each other:<br>&nbsp;&nbsp;- Ignore Height: Allows confirmation candle to be any height<br>&nbsp;&nbsp;- Length Filter: Restricts confirmation candle height to be ≤ first candle<br>&nbsp;&nbsp;→ Length Filter will be ignored when Ignore Height is active');
             }
@@ -1217,9 +1252,18 @@
                 return;
             }
 
-            const trendFilter = document.getElementById('trendFilter').checked;
-            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
-            const requiredCandles = trendFilter ? (emaPeriod + 2) : 3;
+            const rsiFilter = document.getElementById('rsiFilter').checked;
+            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
+            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
+            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            
+            let requiredCandles = 3;
+            if (rsiFilter) {
+                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            }
+            if (trendStructureFilter) {
+                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            }
             
             let minCandles = Infinity;
             let activeCount = 0;
@@ -1274,7 +1318,8 @@
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
-            const savedTrendFilter = sessionStorage.getItem('trendFilter');
+            const savedRsiFilter = sessionStorage.getItem('rsiFilter');
+            const savedTrendStructureFilter = sessionStorage.getItem('trendStructureFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedLengthFilter = sessionStorage.getItem('lengthFilter');
@@ -1283,7 +1328,10 @@
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
-            const savedEmaPeriod = sessionStorage.getItem('emaPeriod');
+            const savedRsiPeriod = sessionStorage.getItem('rsiPeriod');
+            const savedRsiOversold = sessionStorage.getItem('rsiOversold');
+            const savedRsiOverbought = sessionStorage.getItem('rsiOverbought');
+            const savedTrendLookback = sessionStorage.getItem('trendLookback');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
@@ -1303,8 +1351,12 @@
                 activeMarkets = JSON.parse(savedMarkets);
             }
 
-            if (savedTrendFilter) {
-                document.getElementById('trendFilter').checked = savedTrendFilter === 'true';
+            if (savedRsiFilter) {
+                document.getElementById('rsiFilter').checked = savedRsiFilter === 'true';
+            }
+
+            if (savedTrendStructureFilter) {
+                document.getElementById('trendStructureFilter').checked = savedTrendStructureFilter === 'true';
             }
 
             if (savedZeroFilter) {
@@ -1329,53 +1381,21 @@
                 updateReverseModeIndicator();
             }
 
-            if (savedStake) {
-                document.getElementById('stakeAmount').value = savedStake;
-            }
-
-            if (savedStopLoss) {
-                document.getElementById('stopLoss').value = savedStopLoss;
-            }
-
-            if (savedTakeProfit) {
-                document.getElementById('takeProfit').value = savedTakeProfit;
-            }
-
-            if (savedEmaPeriod) {
-                document.getElementById('emaPeriod').value = savedEmaPeriod;
-            }
-
-            if (savedDurationType) {
-                document.getElementById('durationType').value = savedDurationType;
-            }
-
-            if (savedDurationValue) {
-                document.getElementById('durationValue').value = savedDurationValue;
-            }
-
-            if (savedMinLowerWickBuy) {
-                document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
-            }
-
-            if (savedMinUpperWickSell) {
-                document.getElementById('minUpperWickSell').value = savedMinUpperWickSell;
-            }
-
-            if (savedMinUpperWickBuy) {
-                document.getElementById('minUpperWickBuy').value = savedMinUpperWickBuy;
-            }
-
-            if (savedMinLowerWickSell) {
-                document.getElementById('minLowerWickSell').value = savedMinLowerWickSell;
-            }
-
-            if (savedMatchingDiffBuy) {
-                document.getElementById('matchingDiffBuy').value = savedMatchingDiffBuy;
-            }
-
-            if (savedMatchingDiffSell) {
-                document.getElementById('matchingDiffSell').value = savedMatchingDiffSell;
-            }
+            if (savedStake) document.getElementById('stakeAmount').value = savedStake;
+            if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
+            if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
+            if (savedRsiPeriod) document.getElementById('rsiPeriod').value = savedRsiPeriod;
+            if (savedRsiOversold) document.getElementById('rsiOversold').value = savedRsiOversold;
+            if (savedRsiOverbought) document.getElementById('rsiOverbought').value = savedRsiOverbought;
+            if (savedTrendLookback) document.getElementById('trendLookback').value = savedTrendLookback;
+            if (savedDurationType) document.getElementById('durationType').value = savedDurationType;
+            if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
+            if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
+            if (savedMinUpperWickSell) document.getElementById('minUpperWickSell').value = savedMinUpperWickSell;
+            if (savedMinUpperWickBuy) document.getElementById('minUpperWickBuy').value = savedMinUpperWickBuy;
+            if (savedMinLowerWickSell) document.getElementById('minLowerWickSell').value = savedMinLowerWickSell;
+            if (savedMatchingDiffBuy) document.getElementById('matchingDiffBuy').value = savedMatchingDiffBuy;
+            if (savedMatchingDiffSell) document.getElementById('matchingDiffSell').value = savedMatchingDiffSell;
 
             if (savedTradeHistory) {
                 tradeHistory = JSON.parse(savedTradeHistory);
@@ -1387,7 +1407,6 @@
                 updateStats();
             }
 
-            // Check for conflicts after loading
             checkFilterConflicts();
         }
 
@@ -1395,7 +1414,8 @@
         function saveSettings() {
             sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
             sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
-            sessionStorage.setItem('trendFilter', document.getElementById('trendFilter').checked);
+            sessionStorage.setItem('rsiFilter', document.getElementById('rsiFilter').checked);
+            sessionStorage.setItem('trendStructureFilter', document.getElementById('trendStructureFilter').checked);
             sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
             sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
             sessionStorage.setItem('lengthFilter', document.getElementById('lengthFilter').checked);
@@ -1404,7 +1424,10 @@
             sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
             sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
             sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
-            sessionStorage.setItem('emaPeriod', document.getElementById('emaPeriod').value);
+            sessionStorage.setItem('rsiPeriod', document.getElementById('rsiPeriod').value);
+            sessionStorage.setItem('rsiOversold', document.getElementById('rsiOversold').value);
+            sessionStorage.setItem('rsiOverbought', document.getElementById('rsiOverbought').value);
+            sessionStorage.setItem('trendLookback', document.getElementById('trendLookback').value);
             sessionStorage.setItem('durationType', document.getElementById('durationType').value);
             sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
             sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
@@ -1415,6 +1438,7 @@
             sessionStorage.setItem('matchingDiffSell', document.getElementById('matchingDiffSell').value);
             sessionStorage.setItem('tradeHistory', JSON.stringify(tradeHistory));
             sessionStorage.setItem('tradeStats', JSON.stringify(tradeStats));
+            sessionStorage.setItem('wasAutoTrading', isAutoTrading);
         }
 
         // Render markets with subscription indicators
@@ -1468,11 +1492,10 @@
             }
         }
 
-        // Function to safely close a candle from either Tick or Timer
+        // Function to safely close a candle
         function finalizeCandle(symbol, closeTime, closePrice) {
             if (!currentOHLC[symbol]) return;
 
-            // Push the completed candle
             const completedCandle = {
                 time: currentMinute[symbol],
                 open: currentOHLC[symbol].open,
@@ -1483,18 +1506,15 @@
 
             candleData[symbol].push(completedCandle);
             
-            // Clear EMA cache for this symbol when new candle is added
-            emaCache[symbol] = {};
+            // Clear RSI cache for this symbol
+            rsiCache[symbol] = {};
             
-            // Maintain buffer limit
             if (candleData[symbol].length > 100) {
                 candleData[symbol].shift();
             }
 
-            // Reset for the NEW candle
             currentMinute[symbol] = closeTime;
             
-            // The new candle opens at the exact price the old one closed (Gapless)
             currentOHLC[symbol] = {
                 open: closePrice,
                 high: closePrice,
@@ -1504,24 +1524,42 @@
 
             updateCandleCounter();
             
-            // Check for signals IMMEDIATELY upon close
-            const trendFilter = document.getElementById('trendFilter').checked;
-            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
-            const requiredCandles = trendFilter ? (emaPeriod + 2) : 3;
+            const rsiFilter = document.getElementById('rsiFilter').checked;
+            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
+            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
+            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            
+            let requiredCandles = 3;
+            if (rsiFilter) {
+                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            }
+            if (trendStructureFilter) {
+                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            }
             
             if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
                 checkForSignals(symbol);
             }
         }
 
-        // Connect to Deriv API
-        function connectWebSocket(token) {
+        // Enhanced Connect to Deriv API with auto-reconnect
+        function connectWebSocket(token, isReconnect = false) {
             return new Promise((resolve, reject) => {
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = null;
+                }
+
                 ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=116948');
 
                 ws.onopen = () => {
-                    logActivity('WebSocket connected', 'success');
-                    updateConnectionBadge(true);
+                    if (isReconnect) {
+                        logActivity('WebSocket reconnected successfully', 'success');
+                        reconnectAttempts = 0;
+                    } else {
+                        logActivity('WebSocket connected', 'success');
+                    }
+                    updateConnectionBadge('connected');
                     lastHeartbeat = Date.now();
                     ws.send(JSON.stringify({ authorize: token }));
                 };
@@ -1534,40 +1572,52 @@
 
                 ws.onerror = (error) => {
                     logActivity('WebSocket error', 'error');
-                    updateConnectionBadge(false);
+                    updateConnectionBadge('disconnected');
                     reject(error);
                 };
 
                 ws.onclose = () => {
                     logActivity('WebSocket disconnected', 'error');
-                    updateConnectionBadge(false);
+                    updateConnectionBadge('disconnected');
                     
-                    // Clear all subscription indicators
                     Object.keys(markets).forEach(symbol => {
                         updateSubscriptionIndicator(symbol, 'disconnected');
                     });
                     
-                    // Clear subscription tracking
                     marketSubscriptions = {};
                     pendingSubscriptions = {};
                     
-                    if (isLoggedIn) {
-                        setTimeout(() => {
-                            logActivity('Attempting to reconnect...', 'info');
+                    // Auto-reconnect logic
+                    if (isLoggedIn && reconnectAttempts < maxReconnectAttempts) {
+                        wasAutoTradingBeforeDisconnect = isAutoTrading;
+                        reconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000); // Exponential backoff, max 30s
+                        
+                        updateConnectionBadge('reconnecting');
+                        logActivity(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts} in ${delay/1000}s...`, 'warning');
+                        
+                        reconnectTimeout = setTimeout(() => {
                             const savedToken = sessionStorage.getItem('derivToken');
                             if (savedToken) {
-                                connectWebSocket(savedToken)
+                                connectWebSocket(savedToken, true)
                                     .then(() => {
-                                        logActivity('Reconnected successfully', 'success');
-                                        if (isAutoTrading) {
+                                        logActivity('Reconnected successfully!', 'success');
+                                        // Resume auto trading if it was active
+                                        if (wasAutoTradingBeforeDisconnect && !isAutoTrading) {
+                                            logActivity('Resuming auto trading...', 'info');
+                                            setTimeout(() => startAutoTrading(), 1000);
+                                        } else if (isAutoTrading) {
                                             subscribeToActiveMarkets();
                                         }
                                     })
                                     .catch(err => {
-                                        logActivity('Reconnection failed', 'error');
+                                        logActivity(`Reconnection attempt ${reconnectAttempts} failed`, 'error');
                                     });
                             }
-                        }, 3000);
+                        }, delay);
+                    } else if (reconnectAttempts >= maxReconnectAttempts) {
+                        logActivity('Max reconnection attempts reached. Please refresh the page or login again.', 'error');
+                        reconnectAttempts = 0;
                     }
                 };
             });
@@ -1615,7 +1665,7 @@
                 document.getElementById('accountBalance').textContent = parseFloat(accountInfo.balance).toFixed(2);
             }
 
-            // Tick handler with time synchronization
+            // Tick handler
             if (data.msg_type === 'tick' && data.tick) {
                 const symbol = data.tick.symbol;
                 if (!activeMarkets[symbol]) return;
@@ -1624,38 +1674,31 @@
                 const quote = parseFloat(data.tick.quote);
                 const now = Date.now();
                 
-                // TIME SYNC: Calculate difference between PC time and Server time
                 const calculatedOffset = now - (epoch * 1000);
                 if (!isTimeSynced) {
                     serverTimeOffset = calculatedOffset;
                     isTimeSynced = true;
                 } else {
-                    // Smooth the offset (10% new, 90% old) to reduce jitter
                     serverTimeOffset = (serverTimeOffset * 0.9) + (calculatedOffset * 0.1);
                 }
 
                 const tickMinute = Math.floor(epoch / 60) * 60;
 
-                // Initialize if this is the first data point ever
                 if (currentMinute[symbol] === undefined) {
                     currentMinute[symbol] = tickMinute;
                     currentOHLC[symbol] = { open: quote, high: quote, low: quote, close: quote };
                 }
 
-                // CHECK: Did we cross into a new minute?
                 if (tickMinute > currentMinute[symbol]) {
-                    // If the Watchdog hasn't closed it yet, close it now using this tick
                     finalizeCandle(symbol, tickMinute, quote);
                 }
 
-                // UPDATE: Update the currently running candle
                 if (currentOHLC[symbol]) {
                     currentOHLC[symbol].high = Math.max(currentOHLC[symbol].high, quote);
                     currentOHLC[symbol].low = Math.min(currentOHLC[symbol].low, quote);
                     currentOHLC[symbol].close = quote;
                 }
 
-                // Handle subscription confirmation
                 if (data.subscription && data.subscription.id && !marketSubscriptions[symbol]) {
                     marketSubscriptions[symbol] = data.subscription.id;
                     delete pendingSubscriptions[symbol];
@@ -1708,12 +1751,10 @@
             }
         }
 
-        // Handle trade result with duplicate prevention
+        // Handle trade result
         function handleTradeResult(contract) {
-            // Only process completed trades (won/lost/sold)
             if (['won', 'lost', 'sold'].includes(contract.status)) {
                 
-                // DUPLICATE CHECK
                 if (tradeHistory.some(t => t.id === contract.contract_id)) {
                     return;
                 }
@@ -1721,13 +1762,11 @@
                 const profit = parseFloat(contract.profit || 0);
                 const isWin = profit > 0;
 
-                // Update Stats
                 tradeStats.total++;
                 if (isWin) tradeStats.wins++;
                 else tradeStats.losses++;
                 tradeStats.profitLoss += profit;
 
-                // CREATE SAFE OBJECT
                 const trade = {
                     id: contract.contract_id,
                     time: new Date().toLocaleTimeString(),
@@ -1738,21 +1777,17 @@
                     isWin: isWin
                 };
 
-                // SAFE ARRAY INSERTION
                 if (!Array.isArray(tradeHistory)) tradeHistory = [];
                 tradeHistory.unshift(trade);
                 
-                // Limit history to 100 items
                 if (tradeHistory.length > 100) tradeHistory.pop();
 
-                // Update UI
                 updateStats();
                 updateTradeHistoryTable();
                 saveSettings();
 
                 logActivity(`Trade closed: ${trade.market} - ${trade.type} - P/L: ${trade.result}`, isWin ? 'success' : 'error');
 
-                // Check Limits
                 const stopLoss = parseFloat(document.getElementById('stopLoss').value);
                 const takeProfit = parseFloat(document.getElementById('takeProfit').value);
 
@@ -1766,7 +1801,6 @@
                     stopAutoTrading();
                 }
 
-                // Clean up pending trades
                 if (pendingTrades.has(contract.contract_id)) {
                     pendingTrades.delete(contract.contract_id);
                 }
@@ -1787,6 +1821,7 @@
             try {
                 await connectWebSocket(token);
                 isLoggedIn = true;
+                reconnectAttempts = 0;
                 
                 document.getElementById('loginSection').classList.add('hidden');
                 document.getElementById('accountInfo').classList.remove('hidden');
@@ -1801,7 +1836,7 @@
                 logActivity('Login failed: ' + error.message, 'error');
                 document.getElementById('loginBtn').disabled = false;
                 document.getElementById('loginBtn').textContent = 'Login';
-                updateConnectionBadge(false);
+                updateConnectionBadge('disconnected');
             }
         });
 
@@ -1816,9 +1851,15 @@
                 ws = null;
             }
 
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+
             isLoggedIn = false;
+            reconnectAttempts = 0;
             stopSessionTimer();
-            updateConnectionBadge(false);
+            updateConnectionBadge('disconnected');
 
             document.getElementById('apiToken').value = '';
             sessionStorage.removeItem('derivToken');
@@ -1904,7 +1945,7 @@
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
-                emaCache[symbol] = {};
+                rsiCache[symbol] = {};
                 updateSubscriptionIndicator(symbol, 'disconnected');
                 logActivity(`Unsubscribed from ${markets[symbol]}`);
             }
@@ -1946,42 +1987,104 @@
             });
         }
 
-        // Calculate EMA with caching
-        function calculateEMA(data, period) {
-            if (data.length < period) return null;
+        // Calculate RSI with caching
+        function calculateRSI(data, period) {
+            if (data.length < period + 1) return null;
 
             const cacheKey = `${data.length}_${period}`;
             
             const symbol = Object.keys(candleData).find(s => candleData[s] === data);
-            if (symbol && emaCache[symbol] && emaCache[symbol][cacheKey] !== undefined) {
-                return emaCache[symbol][cacheKey];
+            if (symbol && rsiCache[symbol] && rsiCache[symbol][cacheKey] !== undefined) {
+                return rsiCache[symbol][cacheKey];
             }
 
-            const k = 2 / (period + 1);
-            
-            let ema = 0;
-            for (let i = 0; i < period; i++) {
-                ema += data[i].close;
-            }
-            ema /= period;
+            let gains = 0;
+            let losses = 0;
 
-            for (let i = period; i < data.length; i++) {
-                ema = data[i].close * k + ema * (1 - k);
+            // Calculate initial average gain and loss
+            for (let i = 1; i <= period; i++) {
+                const change = data[i].close - data[i - 1].close;
+                if (change > 0) {
+                    gains += change;
+                } else {
+                    losses += Math.abs(change);
+                }
             }
 
+            let avgGain = gains / period;
+            let avgLoss = losses / period;
+
+            // Calculate subsequent values using smoothing
+            for (let i = period + 1; i < data.length; i++) {
+                const change = data[i].close - data[i - 1].close;
+                if (change > 0) {
+                    avgGain = (avgGain * (period - 1) + change) / period;
+                    avgLoss = (avgLoss * (period - 1)) / period;
+                } else {
+                    avgGain = (avgGain * (period - 1)) / period;
+                    avgLoss = (avgLoss * (period - 1) + Math.abs(change)) / period;
+                }
+            }
+
+            const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+            const rsi = 100 - (100 / (1 + rs));
+
+            // Cache the result
             if (symbol) {
-                if (!emaCache[symbol]) emaCache[symbol] = {};
-                emaCache[symbol][cacheKey] = ema;
+                if (!rsiCache[symbol]) rsiCache[symbol] = {};
+                rsiCache[symbol][cacheKey] = rsi;
             }
 
-            return ema;
+            return rsi;
         }
 
-        // Check for trading signals with all filters integrated
+        // Check Trend Structure (HH+HL for uptrend, LL+LH for downtrend)
+        function checkTrendStructure(data, lookback) {
+            if (data.length < lookback + 2) return null;
+
+            const recentCandles = data.slice(-lookback);
+            
+            // Check for Higher Highs + Higher Lows (Uptrend)
+            let isUptrend = true;
+            for (let i = 1; i < recentCandles.length; i++) {
+                if (recentCandles[i].high <= recentCandles[i - 1].high || 
+                    recentCandles[i].low <= recentCandles[i - 1].low) {
+                    isUptrend = false;
+                    break;
+                }
+            }
+
+            if (isUptrend) return 'uptrend'; // HH + HL
+
+            // Check for Lower Lows + Lower Highs (Downtrend)
+            let isDowntrend = true;
+            for (let i = 1; i < recentCandles.length; i++) {
+                if (recentCandles[i].low >= recentCandles[i - 1].low || 
+                    recentCandles[i].high >= recentCandles[i - 1].high) {
+                    isDowntrend = false;
+                    break;
+                }
+            }
+
+            if (isDowntrend) return 'downtrend'; // LL + LH
+
+            return null; // No clear trend structure
+        }
+
+        // Check for trading signals with all filters
         function checkForSignals(symbol) {
-            const trendFilter = document.getElementById('trendFilter').checked;
-            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
-            const requiredCandles = trendFilter ? (emaPeriod + 2) : 2;
+            const rsiFilter = document.getElementById('rsiFilter').checked;
+            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
+            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
+            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            
+            let requiredCandles = 3;
+            if (rsiFilter) {
+                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            }
+            if (trendStructureFilter) {
+                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            }
             
             if (candleData[symbol].length < requiredCandles) return;
 
@@ -2013,70 +2116,100 @@
             const matchingDiffBuy = parseFloat(document.getElementById('matchingDiffBuy').value) / 100;
             const matchingDiffSell = parseFloat(document.getElementById('matchingDiffSell').value) / 100;
 
-            let emaValue = null;
-            if (trendFilter) {
-                emaValue = calculateEMA(candles.slice(0, -1), emaPeriod);
+            let rsiValue = null;
+            let trendStructure = null;
+
+            if (rsiFilter) {
+                rsiValue = calculateRSI(candles.slice(0, -1), rsiPeriod);
+            }
+
+            if (trendStructureFilter) {
+                trendStructure = checkTrendStructure(candles.slice(0, -1), trendLookback);
             }
 
             const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, lengthFilter, reverseCandleFilter, minLowerWickBuy, minUpperWickBuy, matchingDiffBuy);
             if (buySignal) {
-                if (trendFilter && emaValue) {
-                    if (lastCandle.close > emaValue) {
-                        const tradeType = isReverseMode ? 'PUT' : 'CALL';
-                        const patternName = reverseCandleFilter ? 'Reverse Tweezers Bottom' : 'Tweezers Bottom';
-                        const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
-                        addSignal(symbol, `${signalText} (Price: ${lastCandle.close.toFixed(5)}, EMA${emaPeriod}: ${emaValue.toFixed(5)})`);
-                        executeTrade(symbol, tradeType, candleKey);
+                let shouldTrade = true;
+                let filterInfo = [];
+
+                // RSI Filter Check
+                if (rsiFilter && rsiValue !== null) {
+                    const rsiOversold = parseFloat(document.getElementById('rsiOversold').value);
+                    if (rsiValue >= rsiOversold) {
+                        shouldTrade = false;
+                    } else {
+                        filterInfo.push(`RSI: ${rsiValue.toFixed(2)} < ${rsiOversold}`);
                     }
-                } else {
+                }
+
+                // Trend Structure Filter Check (Sell at HH+HL uptrend)
+                if (trendStructureFilter && trendStructure !== null) {
+                    if (trendStructure !== 'downtrend') {
+                        shouldTrade = false;
+                    } else {
+                        filterInfo.push(`Trend: LL+LH`);
+                    }
+                }
+
+                if (shouldTrade) {
                     const tradeType = isReverseMode ? 'PUT' : 'CALL';
                     const patternName = reverseCandleFilter ? 'Reverse Tweezers Bottom' : 'Tweezers Bottom';
                     const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
-                    addSignal(symbol, signalText);
+                    const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
+                    addSignal(symbol, `${signalText}${info}`);
                     executeTrade(symbol, tradeType, candleKey);
                 }
             }
 
             const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, lengthFilter, reverseCandleFilter, minUpperWickSell, minLowerWickSell, matchingDiffSell);
             if (sellSignal) {
-                if (trendFilter && emaValue) {
-                    if (lastCandle.close < emaValue) {
-                        const tradeType = isReverseMode ? 'CALL' : 'PUT';
-                        const patternName = reverseCandleFilter ? 'Reverse Tweezers Top' : 'Tweezers Top';
-                        const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
-                        addSignal(symbol, `${signalText} (Price: ${lastCandle.close.toFixed(5)}, EMA${emaPeriod}: ${emaValue.toFixed(5)})`);
-                        executeTrade(symbol, tradeType, candleKey);
+                let shouldTrade = true;
+                let filterInfo = [];
+
+                // RSI Filter Check
+                if (rsiFilter && rsiValue !== null) {
+                    const rsiOverbought = parseFloat(document.getElementById('rsiOverbought').value);
+                    if (rsiValue <= rsiOverbought) {
+                        shouldTrade = false;
+                    } else {
+                        filterInfo.push(`RSI: ${rsiValue.toFixed(2)} > ${rsiOverbought}`);
                     }
-                } else {
+                }
+
+                // Trend Structure Filter Check (Buy at LL+LH downtrend)
+                if (trendStructureFilter && trendStructure !== null) {
+                    if (trendStructure !== 'uptrend') {
+                        shouldTrade = false;
+                    } else {
+                        filterInfo.push(`Trend: HH+HL`);
+                    }
+                }
+
+                if (shouldTrade) {
                     const tradeType = isReverseMode ? 'CALL' : 'PUT';
                     const patternName = reverseCandleFilter ? 'Reverse Tweezers Top' : 'Tweezers Top';
                     const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
-                    addSignal(symbol, signalText);
+                    const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
+                    addSignal(symbol, `${signalText}${info}`);
                     executeTrade(symbol, tradeType, candleKey);
                 }
             }
         }
 
-        // UPDATED: Check Tweezers Bottom with Reverse Candle Filter
+        // Check Tweezers Bottom with all filters
         function checkTweezersBottom(candle1, candle2, zeroClosing, ignoreHeight, lengthFilter, reverseCandle, minLowerWickPercent, minUpperWickPercent, matchingDiff) {
-            // When Reverse Candle is enabled: Look for Green -> Red (opposite of normal)
-            // Normal: Red -> Green (Matching Lows)
-            // Reverse: Green -> Red (Matching Lows)
-            
             const isCandle1Red = candle1.close < candle1.open;
             const isCandle1Green = candle1.close > candle1.open;
             
-            // Check first candle color based on reverse filter
             if (reverseCandle) {
-                if (!isCandle1Green) return false; // Need GREEN first when reversed
+                if (!isCandle1Green) return false;
             } else {
-                if (!isCandle1Red) return false; // Need RED first normally
+                if (!isCandle1Red) return false;
             }
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
-            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
 
@@ -2091,17 +2224,15 @@
             const isCandle2Green = candle2.close > candle2.open;
             const isCandle2Red = candle2.close < candle2.open;
             
-            // Check second candle color based on reverse filter
             if (reverseCandle) {
-                if (!isCandle2Red) return false; // Need RED second when reversed
+                if (!isCandle2Red) return false;
             } else {
-                if (!isCandle2Green) return false; // Need GREEN second normally
+                if (!isCandle2Green) return false;
             }
 
             const candle2Range = candle2.high - candle2.low;
             if (candle2Range === 0) return false;
 
-            const candle2Body = Math.abs(candle2.close - candle2.open);
             const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
             const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
 
@@ -2113,11 +2244,9 @@
                 if (candle2UpperWick / candle2Range > minUpperWickPercent) return false;
             }
 
-            // Matching LOWS (same for both normal and reverse)
             const lowDiff = Math.abs(candle1.low - candle2.low) / candle1.low;
             if (lowDiff > matchingDiff) return false;
 
-            // HEIGHT CHECK
             if (ignoreHeight) {
                 return true;
             } else if (lengthFilter) {
@@ -2134,26 +2263,20 @@
             return true;
         }
 
-        // UPDATED: Check Tweezers Top with Reverse Candle Filter
+        // Check Tweezers Top with all filters
         function checkTweezersTop(candle1, candle2, zeroClosing, ignoreHeight, lengthFilter, reverseCandle, minUpperWickPercent, minLowerWickPercent, matchingDiff) {
-            // When Reverse Candle is enabled: Look for Red -> Green (opposite of normal)
-            // Normal: Green -> Red (Matching Highs)
-            // Reverse: Red -> Green (Matching Highs)
-            
             const isCandle1Green = candle1.close > candle1.open;
             const isCandle1Red = candle1.close < candle1.open;
             
-            // Check first candle color based on reverse filter
             if (reverseCandle) {
-                if (!isCandle1Red) return false; // Need RED first when reversed
+                if (!isCandle1Red) return false;
             } else {
-                if (!isCandle1Green) return false; // Need GREEN first normally
+                if (!isCandle1Green) return false;
             }
 
             const candle1Range = candle1.high - candle1.low;
             if (candle1Range === 0) return false;
 
-            const candle1Body = Math.abs(candle1.close - candle1.open);
             const candle1UpperWick = candle1.high - Math.max(candle1.open, candle1.close);
             const candle1LowerWick = Math.min(candle1.open, candle1.close) - candle1.low;
 
@@ -2168,17 +2291,15 @@
             const isCandle2Red = candle2.close < candle2.open;
             const isCandle2Green = candle2.close > candle2.open;
             
-            // Check second candle color based on reverse filter
             if (reverseCandle) {
-                if (!isCandle2Green) return false; // Need GREEN second when reversed
+                if (!isCandle2Green) return false;
             } else {
-                if (!isCandle2Red) return false; // Need RED second normally
+                if (!isCandle2Red) return false;
             }
 
             const candle2Range = candle2.high - candle2.low;
             if (candle2Range === 0) return false;
 
-            const candle2Body = Math.abs(candle2.close - candle2.open);
             const candle2UpperWick = candle2.high - Math.max(candle2.open, candle2.close);
             const candle2LowerWick = Math.min(candle2.open, candle2.close) - candle2.low;
 
@@ -2190,11 +2311,9 @@
                 if (candle2LowerWick / candle2Range > minLowerWickPercent) return false;
             }
 
-            // Matching HIGHS (same for both normal and reverse)
             const highDiff = Math.abs(candle1.high - candle2.high) / candle1.high;
             if (highDiff > matchingDiff) return false;
 
-            // HEIGHT CHECK
             if (ignoreHeight) {
                 return true;
             } else if (lengthFilter) {
@@ -2329,7 +2448,6 @@
             tbody.innerHTML = '';
             
             const displayCount = Math.min(tradeHistory.length, 100);
-            
             for (let i = 0; i < displayCount; i++) {
                 const trade = tradeHistory[i];
                 const row = document.createElement('tr');
@@ -2369,7 +2487,7 @@
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
-                emaCache[symbol] = {};
+                rsiCache[symbol] = {};
             });
             
             document.getElementById('autoTradeBtn').textContent = 'Stop Auto Trade';
@@ -2384,9 +2502,18 @@
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            const trendFilter = document.getElementById('trendFilter').checked;
-            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
-            const requiredCandles = trendFilter ? (emaPeriod + 2) : 3;
+            const rsiFilter = document.getElementById('rsiFilter').checked;
+            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
+            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
+            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            
+            let requiredCandles = 3;
+            if (rsiFilter) {
+                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            }
+            if (trendStructureFilter) {
+                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            }
             
             logActivity('Auto trading started', 'success');
             logActivity(`Activation time set: ${new Date(activation_time * 1000).toLocaleTimeString()}`, 'info');
@@ -2394,7 +2521,12 @@
             
             // Log active filters
             const activeFilters = [];
-            if (trendFilter) activeFilters.push(`Trend Filter (EMA${emaPeriod})`);
+            if (rsiFilter) {
+                const oversold = document.getElementById('rsiOversold').value;
+                const overbought = document.getElementById('rsiOverbought').value;
+                activeFilters.push(`RSI Filter (${rsiPeriod}) - Buy<${oversold}, Sell>${overbought}`);
+            }
+            if (trendStructureFilter) activeFilters.push(`Trend Structure (${trendLookback} candles) - Sell@HH+HL, Buy@LL+LH`);
             if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
             if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
             if (document.getElementById('lengthFilter').checked) activeFilters.push('Length Filter');
@@ -2430,6 +2562,8 @@
                     }
                 });
             }, 200);
+
+            saveSettings();
         }
 
         // Stop auto trading
@@ -2459,6 +2593,8 @@
                 clearInterval(candleWatchdogTimer);
                 candleWatchdogTimer = null;
             }
+
+            saveSettings();
         }
 
         // Update reverse mode button
@@ -2509,13 +2645,23 @@
         });
 
         // Filter change listeners
-        document.getElementById('trendFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('trendFilter').checked;
-            const emaPeriod = document.getElementById('emaPeriod').value;
-            logActivity(`Trend filter ${enabled ? 'enabled (EMA' + emaPeriod + ')' : 'disabled'}`);
+        document.getElementById('rsiFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('rsiFilter').checked;
+            const rsiPeriod = document.getElementById('rsiPeriod').value;
+            const oversold = document.getElementById('rsiOversold').value;
+            const overbought = document.getElementById('rsiOverbought').value;
+            logActivity(`RSI filter ${enabled ? `enabled (Period: ${rsiPeriod}, Buy<${oversold}, Sell>${overbought})` : 'disabled'}`);
             if (isAutoTrading) {
-                const requiredCandles = enabled ? (parseInt(emaPeriod) + 2) : 3;
-                logActivity(`Required candles updated to ${requiredCandles}`, 'info');
+                updateCandleCounter();
+            }
+            saveSettings();
+        });
+
+        document.getElementById('trendStructureFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('trendStructureFilter').checked;
+            const lookback = document.getElementById('trendLookback').value;
+            logActivity(`Trend Structure filter ${enabled ? `enabled (Lookback: ${lookback} candles, Sell@HH+HL, Buy@LL+LH)` : 'disabled'}`);
+            if (isAutoTrading) {
                 updateCandleCounter();
             }
             saveSettings();
@@ -2570,17 +2716,33 @@
             saveSettings();
         });
 
-        document.getElementById('emaPeriod').addEventListener('change', () => {
-            const emaPeriod = document.getElementById('emaPeriod').value;
-            logActivity(`EMA period updated to ${emaPeriod}`);
+        document.getElementById('rsiPeriod').addEventListener('change', () => {
+            const rsiPeriod = document.getElementById('rsiPeriod').value;
+            logActivity(`RSI period updated to ${rsiPeriod}`);
             
-            Object.keys(emaCache).forEach(symbol => {
-                emaCache[symbol] = {};
+            Object.keys(rsiCache).forEach(symbol => {
+                rsiCache[symbol] = {};
             });
             
-            if (isAutoTrading && document.getElementById('trendFilter').checked) {
-                const requiredCandles = parseInt(emaPeriod) + 2;
-                logActivity(`Required candles updated to ${requiredCandles}`, 'info');
+            if (isAutoTrading && document.getElementById('rsiFilter').checked) {
+                updateCandleCounter();
+            }
+            saveSettings();
+        });
+
+        document.getElementById('rsiOversold').addEventListener('change', () => {
+            logActivity(`RSI oversold level updated to ${document.getElementById('rsiOversold').value}`);
+            saveSettings();
+        });
+
+        document.getElementById('rsiOverbought').addEventListener('change', () => {
+            logActivity(`RSI overbought level updated to ${document.getElementById('rsiOverbought').value}`);
+            saveSettings();
+        });
+
+        document.getElementById('trendLookback').addEventListener('change', () => {
+            logActivity(`Trend lookback updated to ${document.getElementById('trendLookback').value} candles`);
+            if (isAutoTrading && document.getElementById('trendStructureFilter').checked) {
                 updateCandleCounter();
             }
             saveSettings();
@@ -2631,14 +2793,11 @@
             const stakeAmount = parseFloat(document.getElementById('stakeAmount').value);
             const stopLoss = parseFloat(document.getElementById('stopLoss').value);
             const takeProfit = parseFloat(document.getElementById('takeProfit').value);
-            const emaPeriod = parseInt(document.getElementById('emaPeriod').value);
+            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
+            const rsiOversold = parseInt(document.getElementById('rsiOversold').value);
+            const rsiOverbought = parseInt(document.getElementById('rsiOverbought').value);
+            const trendLookback = parseInt(document.getElementById('trendLookback').value);
             const durationValue = parseInt(document.getElementById('durationValue').value);
-            const minLowerWickBuy = parseFloat(document.getElementById('minLowerWickBuy').value);
-            const minUpperWickSell = parseFloat(document.getElementById('minUpperWickSell').value);
-            const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value);
-            const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value);
-            const matchingDiffBuy = parseFloat(document.getElementById('matchingDiffBuy').value);
-            const matchingDiffSell = parseFloat(document.getElementById('matchingDiffSell').value);
 
             if (stakeAmount < 0.35) {
                 logActivity('Stake amount must be at least 0.35', 'error');
@@ -2658,51 +2817,33 @@
                 return false;
             }
 
-            if (emaPeriod < 5 || emaPeriod > 200) {
-                logActivity('EMA period must be between 5 and 200', 'error');
-                document.getElementById('emaPeriod').value = 50;
+            if (rsiPeriod < 5 || rsiPeriod > 50) {
+                logActivity('RSI period must be between 5 and 50', 'error');
+                document.getElementById('rsiPeriod').value = 14;
+                return false;
+            }
+
+            if (rsiOversold < 10 || rsiOversold > 50) {
+                logActivity('RSI oversold must be between 10 and 50', 'error');
+                document.getElementById('rsiOversold').value = 30;
+                return false;
+            }
+
+            if (rsiOverbought < 50 || rsiOverbought > 90) {
+                logActivity('RSI overbought must be between 50 and 90', 'error');
+                document.getElementById('rsiOverbought').value = 70;
+                return false;
+            }
+
+            if (trendLookback < 3 || trendLookback > 20) {
+                logActivity('Trend lookback must be between 3 and 20', 'error');
+                document.getElementById('trendLookback').value = 5;
                 return false;
             }
 
             if (durationValue < 1) {
                 logActivity('Duration value must be at least 1', 'error');
                 document.getElementById('durationValue').value = 1;
-                return false;
-            }
-
-            if (minLowerWickBuy < 0 || minLowerWickBuy > 100) {
-                logActivity('Min lower wick percentage must be between 0 and 100', 'error');
-                document.getElementById('minLowerWickBuy').value = 50;
-                return false;
-            }
-
-            if (minUpperWickSell < 0 || minUpperWickSell > 100) {
-                logActivity('Min upper wick percentage must be between 0 and 100', 'error');
-                document.getElementById('minUpperWickSell').value = 50;
-                return false;
-            }
-
-            if (minUpperWickBuy < 0 || minUpperWickBuy > 100) {
-                logActivity('Min upper wick percentage must be between 0 and 100', 'error');
-                document.getElementById('minUpperWickBuy').value = 20;
-                return false;
-            }
-
-            if (minLowerWickSell < 0 || minLowerWickSell > 100) {
-                logActivity('Min lower wick percentage must be between 0 and 100', 'error');
-                document.getElementById('minLowerWickSell').value = 20;
-                return false;
-            }
-
-            if (matchingDiffBuy < 0 || matchingDiffBuy > 5) {
-                logActivity('Matching diff percentage must be between 0 and 5', 'error');
-                document.getElementById('matchingDiffBuy').value = 0.3;
-                return false;
-            }
-
-            if (matchingDiffSell < 0 || matchingDiffSell > 5) {
-                logActivity('Matching diff percentage must be between 0 and 5', 'error');
-                document.getElementById('matchingDiffSell').value = 0.3;
                 return false;
             }
 
@@ -2713,14 +2854,11 @@
         document.getElementById('stakeAmount').addEventListener('blur', validateInputs);
         document.getElementById('stopLoss').addEventListener('blur', validateInputs);
         document.getElementById('takeProfit').addEventListener('blur', validateInputs);
-        document.getElementById('emaPeriod').addEventListener('blur', validateInputs);
+        document.getElementById('rsiPeriod').addEventListener('blur', validateInputs);
+        document.getElementById('rsiOversold').addEventListener('blur', validateInputs);
+        document.getElementById('rsiOverbought').addEventListener('blur', validateInputs);
+        document.getElementById('trendLookback').addEventListener('blur', validateInputs);
         document.getElementById('durationValue').addEventListener('blur', validateInputs);
-        document.getElementById('minLowerWickBuy').addEventListener('blur', validateInputs);
-        document.getElementById('minUpperWickSell').addEventListener('blur', validateInputs);
-        document.getElementById('minUpperWickBuy').addEventListener('blur', validateInputs);
-        document.getElementById('minLowerWickSell').addEventListener('blur', validateInputs);
-        document.getElementById('matchingDiffBuy').addEventListener('blur', validateInputs);
-        document.getElementById('matchingDiffSell').addEventListener('blur', validateInputs);
 
         // Monitor WebSocket health
         function checkWebSocketHealth() {
@@ -2732,14 +2870,7 @@
                 }
 
                 if (timeSinceLastMessage > 60000) {
-                    logActivity('No response from server. Reconnecting...', 'error');
-                    const token = sessionStorage.getItem('derivToken');
-                    if (token && ws) {
-                        ws.close();
-                        connectWebSocket(token).catch(err => {
-                            logActivity('Reconnection failed', 'error');
-                        });
-                    }
+                    logActivity('No response from server. Connection may be lost.', 'warning');
                 }
             }
         }
@@ -2847,20 +2978,18 @@
             'stakeAmount': 'Amount to stake per trade (minimum 0.35)',
             'stopLoss': 'Stop trading when total loss reaches this amount',
             'takeProfit': 'Stop trading when total profit reaches this amount',
-            'emaPeriod': 'EMA period used when Trend Filter is enabled (5-200)',
+            'rsiPeriod': 'RSI calculation period (5-50)',
+            'rsiOversold': 'RSI oversold level - Buy only if RSI < this value (10-50)',
+            'rsiOverbought': 'RSI overbought level - Sell only if RSI > this value (50-90)',
+            'trendLookback': 'Number of candles to analyze for trend structure (3-20)',
             'durationType': 'Unit of time for trade duration',
             'durationValue': 'Number of units for trade duration',
-            'minLowerWickBuy': 'Minimum lower wick percentage required for Buy signal (0-100%)',
-            'minUpperWickSell': 'Minimum upper wick percentage required for Sell signal (0-100%)',
-            'minUpperWickBuy': 'Maximum upper wick percentage allowed for Buy signal (0-100%)',
-            'minLowerWickSell': 'Maximum lower wick percentage allowed for Sell signal (0-100%)',
-            'matchingDiffBuy': 'Maximum low matching difference for Buy signal (0-5%)',
-            'matchingDiffSell': 'Maximum high matching difference for Sell signal (0-5%)',
-            'trendFilter': 'Only trade in the direction of EMA trend',
+            'rsiFilter': 'RSI Filter: Buy when RSI<Oversold, Sell when RSI>Overbought',
+            'trendStructureFilter': 'Trend Structure: Sell at HH+HL (uptrend), Buy at LL+LH (downtrend)',
             'zeroClosingFilter': 'Only trade on PERFECT candle closes (exactly 0 opposite wick)',
-            'ignoreHeightFilter': 'Allow confirmation candle to be any height (less than, equal to, or greater than first candle)',
-            'lengthFilter': 'Confirmation candle height must be ≤ first candle height (conflicts with Ignore Height)',
-            'reverseCandleFilter': 'Reverse candle color pattern: Buy = Green→Red (Matching Lows), Sell = Red→Green (Matching Highs)',
+            'ignoreHeightFilter': 'Allow confirmation candle to be any height',
+            'lengthFilter': 'Confirmation candle height must be ≤ first candle height',
+            'reverseCandleFilter': 'Reverse candle color pattern: Buy = Green→Red, Sell = Red→Green',
             'reverseModeBtn': 'Reverse all signals: Buy becomes Sell, Sell becomes Buy'
         };
 
@@ -2891,11 +3020,13 @@
         // Network status monitoring
         window.addEventListener('online', () => {
             logActivity('Network connection restored', 'success');
-            updateConnectionBadge(true);
+            updateConnectionBadge('connected');
+            
             if (isLoggedIn && (!ws || ws.readyState !== WebSocket.OPEN)) {
                 const token = sessionStorage.getItem('derivToken');
                 if (token) {
-                    connectWebSocket(token).catch(err => {
+                    logActivity('Attempting to reconnect...', 'info');
+                    connectWebSocket(token, true).catch(err => {
                         logActivity('Reconnection failed', 'error');
                     });
                 }
@@ -2904,7 +3035,27 @@
 
         window.addEventListener('offline', () => {
             logActivity('Network connection lost!', 'error');
-            updateConnectionBadge(false);
+            updateConnectionBadge('disconnected');
+        });
+
+        // Auto-reconnect on page refresh/reload
+        window.addEventListener('beforeunload', () => {
+            saveSettings();
+        });
+
+        window.addEventListener('load', () => {
+            const savedToken = sessionStorage.getItem('derivToken');
+            const wasAutoTrading = sessionStorage.getItem('wasAutoTrading');
+            
+            if (savedToken && !isLoggedIn) {
+                document.getElementById('apiToken').value = savedToken;
+                logActivity('Saved token found. Click Login to reconnect.', 'info');
+                
+                // Auto-login on page refresh if token exists
+                setTimeout(() => {
+                    document.getElementById('loginBtn').click();
+                }, 500);
+            }
         });
 
         // Initialize app
@@ -2912,34 +3063,21 @@
         renderMarkets();
         logActivity('System initialized. Please login to continue.', 'success');
 
-        // Auto-reconnect on page refresh
-        window.addEventListener('load', () => {
-            const savedToken = sessionStorage.getItem('derivToken');
-            if (savedToken && !isLoggedIn) {
-                document.getElementById('apiToken').value = savedToken;
-                logActivity('Auto-reconnect: Token found in storage', 'info');
-            }
-        });
-
-        // Prevent data loss on page unload
-        window.addEventListener('beforeunload', () => {
-            saveSettings();
-        });
-
-        // Log system information on startup
+        // Log system information
         logActivity(`Browser: ${navigator.userAgent}`, 'info');
         logActivity(`Screen resolution: ${window.screen.width}x${window.screen.height}`, 'info');
         logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
 
-        // Log initial startup complete
+        // Log startup complete
         setTimeout(() => {
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
+            logActivity('NEW: RSI Filter replaces EMA - Buy<30 Oversold, Sell>70 Overbought', 'success');
+            logActivity('NEW: Trend Structure Filter - Sell@HH+HL, Buy@LL+LH', 'success');
+            logActivity('NEW: Enhanced Auto-Reconnect with exponential backoff', 'success');
+            logActivity('Features: RSI, Trend Structure, Zero Closing, Length, Reverse Candle', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
             logActivity('Tip: Press Ctrl+R to toggle reverse mode', 'info');
-            logActivity('Tip: Use console command exportTradeHistory() to export trades', 'info');
-            logActivity('Speed optimization enabled: Watchdog timer + EMA caching active', 'success');
-            logActivity('NEW: Reverse Candle Filter - Switch pattern color order', 'success');
-            logActivity('Features: EMA Trend, Perfect Zero, Length Filter, Reverse Candle, Reverse Mode', 'success');
+            logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
             logActivity('App ID: 116948 | All systems operational', 'success');
         }, 1000);
     </script>
