@@ -856,6 +856,16 @@
             background: rgba(0, 212, 255, 0.05);
             border-radius: 5px;
         }
+
+        .refresh-indicator {
+            text-align: center;
+            font-size: 11px;
+            color: #9b59b6;
+            margin-top: 5px;
+            padding: 6px;
+            background: rgba(155, 89, 182, 0.1);
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
@@ -898,6 +908,10 @@
                 <div class="timer-label">Session Time</div>
                 <div class="timer-value" id="timerValue">00:00:00</div>
             </div>
+            
+            <div class="refresh-indicator hidden" id="refreshIndicator">
+                Next refresh in: <span id="refreshTimer">--:--:--</span>
+            </div>
         </div>
 
         <div class="signal-monitor">
@@ -926,16 +940,16 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">RSI Filter (Oversold/Overbought)</span>
+                        <span class="filter-label">Stochastic Oscillator Filter</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="rsiFilter">
+                            <input type="checkbox" id="stochasticFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
                     <div class="filter-item">
-                        <span class="filter-label">Trend Structure (HH+HL / LL+LH)</span>
+                        <span class="filter-label">Local Swing Extremes</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="trendStructureFilter">
+                            <input type="checkbox" id="swingExtremesFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -967,6 +981,13 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Auto Refresh Browser</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="autoRefreshFilter">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- Conflict Alert Box -->
@@ -992,20 +1013,28 @@
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">RSI Period</label>
-                        <input type="number" class="input-field" id="rsiPeriod" value="14" min="5" max="50" step="1">
+                        <label class="input-label">Stochastic %K Period</label>
+                        <input type="number" class="input-field" id="stochKPeriod" value="14" min="5" max="50" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">RSI Oversold</label>
-                        <input type="number" class="input-field" id="rsiOversold" value="30" min="10" max="50" step="1">
+                        <label class="input-label">Stochastic %D Period</label>
+                        <input type="number" class="input-field" id="stochDPeriod" value="3" min="1" max="10" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">RSI Overbought</label>
-                        <input type="number" class="input-field" id="rsiOverbought" value="70" min="50" max="90" step="1">
+                        <label class="input-label">Stochastic Smooth</label>
+                        <input type="number" class="input-field" id="stochSmooth" value="3" min="1" max="10" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">Trend Lookback</label>
-                        <input type="number" class="input-field" id="trendLookback" value="5" min="3" max="20" step="1">
+                        <label class="input-label">Stochastic Oversold</label>
+                        <input type="number" class="input-field" id="stochOversold" value="20" min="10" max="30" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Stochastic Overbought</label>
+                        <input type="number" class="input-field" id="stochOverbought" value="80" min="70" max="90" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Swing Lookback</label>
+                        <input type="number" class="input-field" id="swingLookback" value="5" min="3" max="20" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
@@ -1042,6 +1071,10 @@
                     <div class="input-group">
                         <label class="input-label">Matching Diff % (Sell)</label>
                         <input type="number" class="input-field" id="matchingDiffSell" value="0.3" min="0" max="5" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Auto Refresh (Hours)</label>
+                        <input type="number" class="input-field" id="refreshInterval" value="1" min="0.1" max="24" step="0.1">
                     </div>
                 </div>
 
@@ -1159,20 +1192,26 @@
         let tradedCandles = {};
         let requestIdCounter = 0;
         let pendingProposals = new Map();
+        let openContractSubscriptions = new Set();
         
         // Time synchronization variables
         let serverTimeOffset = 0;
         let isTimeSynced = false;
         let candleWatchdogTimer = null;
 
-        // RSI cache for optimization
-        let rsiCache = {};
+        // Stochastic cache for optimization
+        let stochCache = {};
 
         // Auto-reconnect variables
         let reconnectAttempts = 0;
         let maxReconnectAttempts = 10;
         let reconnectTimeout = null;
         let wasAutoTradingBeforeDisconnect = false;
+
+        // Auto-refresh variables
+        let autoRefreshTimer = null;
+        let refreshCountdownTimer = null;
+        let nextRefreshTime = null;
 
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
@@ -1181,7 +1220,7 @@
             currentOHLC[symbol] = undefined;
             currentMinute[symbol] = undefined;
             tradedCandles[symbol] = new Set();
-            rsiCache[symbol] = {};
+            stochCache[symbol] = {};
         });
 
         // Update connection badge
@@ -1252,17 +1291,18 @@
                 return;
             }
 
-            const rsiFilter = document.getElementById('rsiFilter').checked;
-            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
-            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
-            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            const stochasticFilter = document.getElementById('stochasticFilter').checked;
+            const swingExtremesFilter = document.getElementById('swingExtremesFilter').checked;
+            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
+            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
+            const swingLookback = parseInt(document.getElementById('swingLookback').value);
             
             let requiredCandles = 3;
-            if (rsiFilter) {
-                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            if (stochasticFilter) {
+                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 2);
             }
-            if (trendStructureFilter) {
-                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            if (swingExtremesFilter) {
+                requiredCandles = Math.max(requiredCandles, swingLookback + 2);
             }
             
             let minCandles = Infinity;
@@ -1314,24 +1354,120 @@
             }
         }
 
+        // Auto-refresh functions
+        function startAutoRefresh() {
+            const refreshInterval = parseFloat(document.getElementById('refreshInterval').value);
+            const intervalMs = refreshInterval * 60 * 60 * 1000; // Convert hours to milliseconds
+            
+            nextRefreshTime = Date.now() + intervalMs;
+            
+            // Set the main refresh timer
+            if (autoRefreshTimer) clearTimeout(autoRefreshTimer);
+            autoRefreshTimer = setTimeout(() => {
+                performAutoRefresh();
+            }, intervalMs);
+            
+            // Start countdown timer
+            if (refreshCountdownTimer) clearInterval(refreshCountdownTimer);
+            refreshCountdownTimer = setInterval(updateRefreshCountdown, 1000);
+            
+            document.getElementById('refreshIndicator').classList.remove('hidden');
+            logActivity(`Auto-refresh enabled: Browser will refresh every ${refreshInterval} hour(s)`, 'success');
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshTimer) {
+                clearTimeout(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+            if (refreshCountdownTimer) {
+                clearInterval(refreshCountdownTimer);
+                refreshCountdownTimer = null;
+            }
+            nextRefreshTime = null;
+            document.getElementById('refreshIndicator').classList.add('hidden');
+            logActivity('Auto-refresh disabled', 'info');
+        }
+
+        function updateRefreshCountdown() {
+            if (!nextRefreshTime) return;
+            
+            const remaining = nextRefreshTime - Date.now();
+            if (remaining <= 0) {
+                document.getElementById('refreshTimer').textContent = '00:00:00';
+                return;
+            }
+            
+            const hours = Math.floor(remaining / 3600000);
+            const minutes = Math.floor((remaining % 3600000) / 60000);
+            const seconds = Math.floor((remaining % 60000) / 1000);
+            
+            document.getElementById('refreshTimer').textContent = 
+                `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        function performAutoRefresh() {
+            logActivity('Auto-refresh triggered - Reloading browser...', 'warning');
+            
+            // Save current state before refresh
+            localStorage.setItem('autoRefreshActive', 'true');
+            localStorage.setItem('refreshTimestamp', Date.now().toString());
+            
+            saveSettings();
+            
+            // Reload the page
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+
+        function handlePostRefreshRecovery() {
+            const wasAutoRefresh = localStorage.getItem('autoRefreshActive');
+            const refreshTimestamp = localStorage.getItem('refreshTimestamp');
+            
+            if (wasAutoRefresh === 'true') {
+                localStorage.removeItem('autoRefreshActive');
+                localStorage.removeItem('refreshTimestamp');
+                
+                const timeSinceRefresh = refreshTimestamp ? Date.now() - parseInt(refreshTimestamp) : 0;
+                
+                logActivity('Browser auto-refreshed successfully', 'success');
+                logActivity(`Time since refresh: ${Math.floor(timeSinceRefresh / 1000)}s`, 'info');
+                
+                // Check if auto-refresh filter is still enabled
+                const autoRefreshEnabled = document.getElementById('autoRefreshFilter').checked;
+                if (autoRefreshEnabled) {
+                    // Restart auto-refresh timer after page loads
+                    setTimeout(() => {
+                        if (document.getElementById('autoRefreshFilter').checked) {
+                            startAutoRefresh();
+                        }
+                    }, 2000);
+                }
+            }
+        }
+
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
-            const savedRsiFilter = sessionStorage.getItem('rsiFilter');
-            const savedTrendStructureFilter = sessionStorage.getItem('trendStructureFilter');
+            const savedStochasticFilter = sessionStorage.getItem('stochasticFilter');
+            const savedSwingExtremesFilter = sessionStorage.getItem('swingExtremesFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedLengthFilter = sessionStorage.getItem('lengthFilter');
             const savedReverseCandleFilter = sessionStorage.getItem('reverseCandleFilter');
+            const savedAutoRefreshFilter = sessionStorage.getItem('autoRefreshFilter');
             const savedReverseMode = sessionStorage.getItem('reverseMode');
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
-            const savedRsiPeriod = sessionStorage.getItem('rsiPeriod');
-            const savedRsiOversold = sessionStorage.getItem('rsiOversold');
-            const savedRsiOverbought = sessionStorage.getItem('rsiOverbought');
-            const savedTrendLookback = sessionStorage.getItem('trendLookback');
+            const savedStochKPeriod = sessionStorage.getItem('stochKPeriod');
+            const savedStochDPeriod = sessionStorage.getItem('stochDPeriod');
+            const savedStochSmooth = sessionStorage.getItem('stochSmooth');
+            const savedStochOversold = sessionStorage.getItem('stochOversold');
+            const savedStochOverbought = sessionStorage.getItem('stochOverbought');
+            const savedSwingLookback = sessionStorage.getItem('swingLookback');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
@@ -1340,6 +1476,7 @@
             const savedMinLowerWickSell = sessionStorage.getItem('minLowerWickSell');
             const savedMatchingDiffBuy = sessionStorage.getItem('matchingDiffBuy');
             const savedMatchingDiffSell = sessionStorage.getItem('matchingDiffSell');
+            const savedRefreshInterval = sessionStorage.getItem('refreshInterval');
             const savedTradeHistory = sessionStorage.getItem('tradeHistory');
             const savedStats = sessionStorage.getItem('tradeStats');
 
@@ -1351,12 +1488,12 @@
                 activeMarkets = JSON.parse(savedMarkets);
             }
 
-            if (savedRsiFilter) {
-                document.getElementById('rsiFilter').checked = savedRsiFilter === 'true';
+            if (savedStochasticFilter) {
+                document.getElementById('stochasticFilter').checked = savedStochasticFilter === 'true';
             }
 
-            if (savedTrendStructureFilter) {
-                document.getElementById('trendStructureFilter').checked = savedTrendStructureFilter === 'true';
+            if (savedSwingExtremesFilter) {
+                document.getElementById('swingExtremesFilter').checked = savedSwingExtremesFilter === 'true';
             }
 
             if (savedZeroFilter) {
@@ -1375,6 +1512,10 @@
                 document.getElementById('reverseCandleFilter').checked = savedReverseCandleFilter === 'true';
             }
 
+            if (savedAutoRefreshFilter) {
+                document.getElementById('autoRefreshFilter').checked = savedAutoRefreshFilter === 'true';
+            }
+
             if (savedReverseMode) {
                 isReverseMode = savedReverseMode === 'true';
                 updateReverseModeButton();
@@ -1384,10 +1525,12 @@
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
-            if (savedRsiPeriod) document.getElementById('rsiPeriod').value = savedRsiPeriod;
-            if (savedRsiOversold) document.getElementById('rsiOversold').value = savedRsiOversold;
-            if (savedRsiOverbought) document.getElementById('rsiOverbought').value = savedRsiOverbought;
-            if (savedTrendLookback) document.getElementById('trendLookback').value = savedTrendLookback;
+            if (savedStochKPeriod) document.getElementById('stochKPeriod').value = savedStochKPeriod;
+            if (savedStochDPeriod) document.getElementById('stochDPeriod').value = savedStochDPeriod;
+            if (savedStochSmooth) document.getElementById('stochSmooth').value = savedStochSmooth;
+            if (savedStochOversold) document.getElementById('stochOversold').value = savedStochOversold;
+            if (savedStochOverbought) document.getElementById('stochOverbought').value = savedStochOverbought;
+            if (savedSwingLookback) document.getElementById('swingLookback').value = savedSwingLookback;
             if (savedDurationType) document.getElementById('durationType').value = savedDurationType;
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
@@ -1396,15 +1539,26 @@
             if (savedMinLowerWickSell) document.getElementById('minLowerWickSell').value = savedMinLowerWickSell;
             if (savedMatchingDiffBuy) document.getElementById('matchingDiffBuy').value = savedMatchingDiffBuy;
             if (savedMatchingDiffSell) document.getElementById('matchingDiffSell').value = savedMatchingDiffSell;
+            if (savedRefreshInterval) document.getElementById('refreshInterval').value = savedRefreshInterval;
 
             if (savedTradeHistory) {
-                tradeHistory = JSON.parse(savedTradeHistory);
-                updateTradeHistoryTable();
+                try {
+                    tradeHistory = JSON.parse(savedTradeHistory);
+                    updateTradeHistoryTable();
+                } catch (e) {
+                    console.error('Error loading trade history:', e);
+                    tradeHistory = [];
+                }
             }
 
             if (savedStats) {
-                tradeStats = JSON.parse(savedStats);
-                updateStats();
+                try {
+                    tradeStats = JSON.parse(savedStats);
+                    updateStats();
+                } catch (e) {
+                    console.error('Error loading trade stats:', e);
+                    tradeStats = { total: 0, wins: 0, losses: 0, profitLoss: 0 };
+                }
             }
 
             checkFilterConflicts();
@@ -1412,33 +1566,42 @@
 
         // Save settings
         function saveSettings() {
-            sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
-            sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
-            sessionStorage.setItem('rsiFilter', document.getElementById('rsiFilter').checked);
-            sessionStorage.setItem('trendStructureFilter', document.getElementById('trendStructureFilter').checked);
-            sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
-            sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
-            sessionStorage.setItem('lengthFilter', document.getElementById('lengthFilter').checked);
-            sessionStorage.setItem('reverseCandleFilter', document.getElementById('reverseCandleFilter').checked);
-            sessionStorage.setItem('reverseMode', isReverseMode);
-            sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
-            sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
-            sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
-            sessionStorage.setItem('rsiPeriod', document.getElementById('rsiPeriod').value);
-            sessionStorage.setItem('rsiOversold', document.getElementById('rsiOversold').value);
-            sessionStorage.setItem('rsiOverbought', document.getElementById('rsiOverbought').value);
-            sessionStorage.setItem('trendLookback', document.getElementById('trendLookback').value);
-            sessionStorage.setItem('durationType', document.getElementById('durationType').value);
-            sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
-            sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
-            sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
-            sessionStorage.setItem('minUpperWickBuy', document.getElementById('minUpperWickBuy').value);
-            sessionStorage.setItem('minLowerWickSell', document.getElementById('minLowerWickSell').value);
-            sessionStorage.setItem('matchingDiffBuy', document.getElementById('matchingDiffBuy').value);
-            sessionStorage.setItem('matchingDiffSell', document.getElementById('matchingDiffSell').value);
-            sessionStorage.setItem('tradeHistory', JSON.stringify(tradeHistory));
-            sessionStorage.setItem('tradeStats', JSON.stringify(tradeStats));
-            sessionStorage.setItem('wasAutoTrading', isAutoTrading);
+            try {
+                sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
+                sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
+                sessionStorage.setItem('stochasticFilter', document.getElementById('stochasticFilter').checked);
+                sessionStorage.setItem('swingExtremesFilter', document.getElementById('swingExtremesFilter').checked);
+                sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
+                sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
+                sessionStorage.setItem('lengthFilter', document.getElementById('lengthFilter').checked);
+                sessionStorage.setItem('reverseCandleFilter', document.getElementById('reverseCandleFilter').checked);
+                sessionStorage.setItem('autoRefreshFilter', document.getElementById('autoRefreshFilter').checked);
+                sessionStorage.setItem('reverseMode', isReverseMode);
+                sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
+                sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
+                sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
+                sessionStorage.setItem('stochKPeriod', document.getElementById('stochKPeriod').value);
+                sessionStorage.setItem('stochDPeriod', document.getElementById('stochDPeriod').value);
+                sessionStorage.setItem('stochSmooth', document.getElementById('stochSmooth').value);
+                sessionStorage.setItem('stochOversold', document.getElementById('stochOversold').value);
+                sessionStorage.setItem('stochOverbought', document.getElementById('stochOverbought').value);
+                sessionStorage.setItem('swingLookback', document.getElementById('swingLookback').value);
+                sessionStorage.setItem('durationType', document.getElementById('durationType').value);
+                sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
+                sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
+                sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
+                sessionStorage.setItem('minUpperWickBuy', document.getElementById('minUpperWickBuy').value);
+                sessionStorage.setItem('minLowerWickSell', document.getElementById('minLowerWickSell').value);
+                sessionStorage.setItem('matchingDiffBuy', document.getElementById('matchingDiffBuy').value);
+                sessionStorage.setItem('matchingDiffSell', document.getElementById('matchingDiffSell').value);
+                sessionStorage.setItem('refreshInterval', document.getElementById('refreshInterval').value);
+                sessionStorage.setItem('tradeHistory', JSON.stringify(tradeHistory));
+                sessionStorage.setItem('tradeStats', JSON.stringify(tradeStats));
+                sessionStorage.setItem('wasAutoTrading', isAutoTrading);
+            } catch (e) {
+                console.error('Error saving settings:', e);
+                logActivity('Warning: Failed to save some settings', 'warning');
+            }
         }
 
         // Render markets with subscription indicators
@@ -1506,8 +1669,8 @@
 
             candleData[symbol].push(completedCandle);
             
-            // Clear RSI cache for this symbol
-            rsiCache[symbol] = {};
+            // Clear Stochastic cache for this symbol
+            stochCache[symbol] = {};
             
             if (candleData[symbol].length > 100) {
                 candleData[symbol].shift();
@@ -1524,17 +1687,18 @@
 
             updateCandleCounter();
             
-            const rsiFilter = document.getElementById('rsiFilter').checked;
-            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
-            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
-            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            const stochasticFilter = document.getElementById('stochasticFilter').checked;
+            const swingExtremesFilter = document.getElementById('swingExtremesFilter').checked;
+            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
+            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
+            const swingLookback = parseInt(document.getElementById('swingLookback').value);
             
             let requiredCandles = 3;
-            if (rsiFilter) {
-                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            if (stochasticFilter) {
+                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 2);
             }
-            if (trendStructureFilter) {
-                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            if (swingExtremesFilter) {
+                requiredCandles = Math.max(requiredCandles, swingLookback + 2);
             }
             
             if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
@@ -1591,7 +1755,7 @@
                     if (isLoggedIn && reconnectAttempts < maxReconnectAttempts) {
                         wasAutoTradingBeforeDisconnect = isAutoTrading;
                         reconnectAttempts++;
-                        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000); // Exponential backoff, max 30s
+                        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
                         
                         updateConnectionBadge('reconnecting');
                         logActivity(`Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts} in ${delay/1000}s...`, 'warning');
@@ -1602,7 +1766,6 @@
                                 connectWebSocket(savedToken, true)
                                     .then(() => {
                                         logActivity('Reconnected successfully!', 'success');
-                                        // Resume auto trading if it was active
                                         if (wasAutoTradingBeforeDisconnect && !isAutoTrading) {
                                             logActivity('Resuming auto trading...', 'info');
                                             setTimeout(() => startAutoTrading(), 1000);
@@ -1726,11 +1889,15 @@
                         pendingTrades.set(data.buy.contract_id, tradeInfo);
                     }
                     
-                    ws.send(JSON.stringify({
-                        proposal_open_contract: 1,
-                        contract_id: data.buy.contract_id,
-                        subscribe: 1
-                    }));
+                    // Subscribe to contract updates
+                    if (!openContractSubscriptions.has(data.buy.contract_id)) {
+                        ws.send(JSON.stringify({
+                            proposal_open_contract: 1,
+                            contract_id: data.buy.contract_id,
+                            subscribe: 1
+                        }));
+                        openContractSubscriptions.add(data.buy.contract_id);
+                    }
                     
                     logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
                 }
@@ -1751,59 +1918,80 @@
             }
         }
 
-        // Handle trade result
+        // Handle trade result - FIXED VERSION
         function handleTradeResult(contract) {
-            if (['won', 'lost', 'sold'].includes(contract.status)) {
-                
-                if (tradeHistory.some(t => t.id === contract.contract_id)) {
-                    return;
-                }
+            // Only process contracts that are finalized
+            if (!['won', 'lost', 'sold'].includes(contract.status)) {
+                return;
+            }
+            
+            // Check if we've already processed this contract
+            if (tradeHistory.some(t => t.id === contract.contract_id)) {
+                return;
+            }
 
-                const profit = parseFloat(contract.profit || 0);
-                const isWin = profit > 0;
+            const profit = parseFloat(contract.profit || 0);
+            const isWin = profit > 0;
 
-                tradeStats.total++;
-                if (isWin) tradeStats.wins++;
-                else tradeStats.losses++;
-                tradeStats.profitLoss += profit;
+            // Update statistics
+            tradeStats.total++;
+            if (isWin) tradeStats.wins++;
+            else tradeStats.losses++;
+            tradeStats.profitLoss += profit;
 
-                const trade = {
-                    id: contract.contract_id,
-                    time: new Date().toLocaleTimeString(),
-                    market: markets[contract.underlying] || contract.underlying || 'Unknown',
-                    type: contract.contract_type || 'Unknown',
-                    stake: parseFloat(contract.buy_price || 0).toFixed(2),
-                    result: profit.toFixed(2),
-                    isWin: isWin
-                };
+            // Create trade record
+            const trade = {
+                id: contract.contract_id,
+                time: new Date().toLocaleTimeString(),
+                date: new Date().toLocaleDateString(),
+                market: markets[contract.underlying] || contract.underlying || 'Unknown',
+                type: contract.contract_type || 'Unknown',
+                stake: parseFloat(contract.buy_price || 0).toFixed(2),
+                result: profit.toFixed(2),
+                isWin: isWin
+            };
 
-                if (!Array.isArray(tradeHistory)) tradeHistory = [];
-                tradeHistory.unshift(trade);
-                
-                if (tradeHistory.length > 100) tradeHistory.pop();
+            // Add to trade history
+            if (!Array.isArray(tradeHistory)) tradeHistory = [];
+            tradeHistory.unshift(trade);
+            
+            // Keep only last 100 trades in memory
+            if (tradeHistory.length > 100) {
+                tradeHistory = tradeHistory.slice(0, 100);
+            }
 
-                updateStats();
-                updateTradeHistoryTable();
-                saveSettings();
+            // Update UI
+            updateStats();
+            updateTradeHistoryTable();
+            
+            // Save to storage
+            saveSettings();
 
-                logActivity(`Trade closed: ${trade.market} - ${trade.type} - P/L: ${trade.result}`, isWin ? 'success' : 'error');
+            // Log the trade
+            logActivity(`Trade closed: ${trade.market} - ${trade.type} - P/L: ${trade.result}`, isWin ? 'success' : 'error');
 
-                const stopLoss = parseFloat(document.getElementById('stopLoss').value);
-                const takeProfit = parseFloat(document.getElementById('takeProfit').value);
+            // Check stop loss and take profit
+            const stopLoss = parseFloat(document.getElementById('stopLoss').value);
+            const takeProfit = parseFloat(document.getElementById('takeProfit').value);
 
-                if (stopLoss > 0 && Math.abs(tradeStats.profitLoss) >= stopLoss && tradeStats.profitLoss < 0) {
-                    logActivity(`Stop loss reached: ${tradeStats.profitLoss.toFixed(2)}`, 'error');
-                    stopAutoTrading();
-                }
+            if (stopLoss > 0 && Math.abs(tradeStats.profitLoss) >= stopLoss && tradeStats.profitLoss < 0) {
+                logActivity(`Stop loss reached: ${tradeStats.profitLoss.toFixed(2)}`, 'error');
+                stopAutoTrading();
+            }
 
-                if (takeProfit > 0 && tradeStats.profitLoss >= takeProfit) {
-                    logActivity(`Take profit reached: ${tradeStats.profitLoss.toFixed(2)}`, 'success');
-                    stopAutoTrading();
-                }
+            if (takeProfit > 0 && tradeStats.profitLoss >= takeProfit) {
+                logActivity(`Take profit reached: ${tradeStats.profitLoss.toFixed(2)}`, 'success');
+                stopAutoTrading();
+            }
 
-                if (pendingTrades.has(contract.contract_id)) {
-                    pendingTrades.delete(contract.contract_id);
-                }
+            // Clean up pending trades and subscriptions
+            if (pendingTrades.has(contract.contract_id)) {
+                pendingTrades.delete(contract.contract_id);
+            }
+            
+            // Unsubscribe from this contract's updates
+            if (openContractSubscriptions.has(contract.contract_id)) {
+                openContractSubscriptions.delete(contract.contract_id);
             }
         }
 
@@ -1832,6 +2020,11 @@
                 saveSettings();
                 startSessionTimer();
                 logActivity('Login successful', 'success');
+                
+                // Check if auto-refresh should be started
+                if (document.getElementById('autoRefreshFilter').checked) {
+                    startAutoRefresh();
+                }
             } catch (error) {
                 logActivity('Login failed: ' + error.message, 'error');
                 document.getElementById('loginBtn').disabled = false;
@@ -1859,6 +2052,7 @@
             isLoggedIn = false;
             reconnectAttempts = 0;
             stopSessionTimer();
+            stopAutoRefresh();
             updateConnectionBadge('disconnected');
 
             document.getElementById('apiToken').value = '';
@@ -1945,7 +2139,7 @@
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
-                rsiCache[symbol] = {};
+                stochCache[symbol] = {};
                 updateSubscriptionIndicator(symbol, 'disconnected');
                 logActivity(`Unsubscribed from ${markets[symbol]}`);
             }
@@ -1987,103 +2181,94 @@
             });
         }
 
-        // Calculate RSI with caching
-        function calculateRSI(data, period) {
-            if (data.length < period + 1) return null;
+        // Calculate Stochastic Oscillator with caching
+        function calculateStochastic(data, kPeriod, dPeriod, smooth) {
+            if (data.length < kPeriod + dPeriod + smooth) return null;
 
-            const cacheKey = `${data.length}_${period}`;
+            const cacheKey = `${data.length}_${kPeriod}_${dPeriod}_${smooth}`;
             
             const symbol = Object.keys(candleData).find(s => candleData[s] === data);
-            if (symbol && rsiCache[symbol] && rsiCache[symbol][cacheKey] !== undefined) {
-                return rsiCache[symbol][cacheKey];
+            if (symbol && stochCache[symbol] && stochCache[symbol][cacheKey] !== undefined) {
+                return stochCache[symbol][cacheKey];
             }
 
-            let gains = 0;
-            let losses = 0;
-
-            // Calculate initial average gain and loss
-            for (let i = 1; i <= period; i++) {
-                const change = data[i].close - data[i - 1].close;
-                if (change > 0) {
-                    gains += change;
-                } else {
-                    losses += Math.abs(change);
-                }
+            // Calculate %K values
+            const kValues = [];
+            for (let i = kPeriod - 1; i < data.length; i++) {
+                const periodData = data.slice(i - kPeriod + 1, i + 1);
+                const high = Math.max(...periodData.map(c => c.high));
+                const low = Math.min(...periodData.map(c => c.low));
+                const close = data[i].close;
+                
+                const k = low === high ? 50 : ((close - low) / (high - low)) * 100;
+                kValues.push(k);
             }
 
-            let avgGain = gains / period;
-            let avgLoss = losses / period;
-
-            // Calculate subsequent values using smoothing
-            for (let i = period + 1; i < data.length; i++) {
-                const change = data[i].close - data[i - 1].close;
-                if (change > 0) {
-                    avgGain = (avgGain * (period - 1) + change) / period;
-                    avgLoss = (avgLoss * (period - 1)) / period;
-                } else {
-                    avgGain = (avgGain * (period - 1)) / period;
-                    avgLoss = (avgLoss * (period - 1) + Math.abs(change)) / period;
-                }
+            // Smooth %K if needed
+            const smoothedK = [];
+            for (let i = smooth - 1; i < kValues.length; i++) {
+                const sum = kValues.slice(i - smooth + 1, i + 1).reduce((a, b) => a + b, 0);
+                smoothedK.push(sum / smooth);
             }
 
-            const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-            const rsi = 100 - (100 / (1 + rs));
+            // Calculate %D (SMA of smoothed %K)
+            const dValues = [];
+            for (let i = dPeriod - 1; i < smoothedK.length; i++) {
+                const sum = smoothedK.slice(i - dPeriod + 1, i + 1).reduce((a, b) => a + b, 0);
+                dValues.push(sum / dPeriod);
+            }
+
+            const result = {
+                k: smoothedK[smoothedK.length - 1],
+                d: dValues[dValues.length - 1],
+                prevK: smoothedK[smoothedK.length - 2],
+                prevD: dValues[dValues.length - 2]
+            };
 
             // Cache the result
             if (symbol) {
-                if (!rsiCache[symbol]) rsiCache[symbol] = {};
-                rsiCache[symbol][cacheKey] = rsi;
+                if (!stochCache[symbol]) stochCache[symbol] = {};
+                stochCache[symbol][cacheKey] = result;
             }
 
-            return rsi;
+            return result;
         }
 
-        // Check Trend Structure (HH+HL for uptrend, LL+LH for downtrend)
-        function checkTrendStructure(data, lookback) {
-            if (data.length < lookback + 2) return null;
+        // Check if current pattern is at local swing extreme
+        function isLocalSwingExtreme(data, lookback, type) {
+            if (data.length < lookback + 2) return false;
 
             const recentCandles = data.slice(-lookback);
-            
-            // Check for Higher Highs + Higher Lows (Uptrend)
-            let isUptrend = true;
-            for (let i = 1; i < recentCandles.length; i++) {
-                if (recentCandles[i].high <= recentCandles[i - 1].high || 
-                    recentCandles[i].low <= recentCandles[i - 1].low) {
-                    isUptrend = false;
-                    break;
-                }
+            const patternCandle = data[data.length - 1];
+
+            if (type === 'high') {
+                // Check if pattern high is the highest high
+                const highestHigh = Math.max(...recentCandles.map(c => c.high));
+                return patternCandle.high >= highestHigh;
+            } else if (type === 'low') {
+                // Check if pattern low is the lowest low
+                const lowestLow = Math.min(...recentCandles.map(c => c.low));
+                return patternCandle.low <= lowestLow;
             }
 
-            if (isUptrend) return 'uptrend'; // HH + HL
-
-            // Check for Lower Lows + Lower Highs (Downtrend)
-            let isDowntrend = true;
-            for (let i = 1; i < recentCandles.length; i++) {
-                if (recentCandles[i].low >= recentCandles[i - 1].low || 
-                    recentCandles[i].high >= recentCandles[i - 1].high) {
-                    isDowntrend = false;
-                    break;
-                }
-            }
-
-            if (isDowntrend) return 'downtrend'; // LL + LH
-
-            return null; // No clear trend structure
+            return false;
         }
 
         // Check for trading signals with all filters
         function checkForSignals(symbol) {
-            const rsiFilter = document.getElementById('rsiFilter').checked;
-            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
-            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
-            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            const stochasticFilter = document.getElementById('stochasticFilter').checked;
+            const swingExtremesFilter = document.getElementById('swingExtremesFilter').checked;
+            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
+            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
+            const stochSmooth = parseInt(document.getElementById('stochSmooth').value);
+            const swingLookback = parseInt(document.getElementById('swingLookback').value);
             
             let requiredCandles = 3;
-            if (rsiFilter) {
-                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            if (stochasticFilter) {
+                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 2);
             }
-            if (trendStructureFilter) {
-                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            if (swingExtremesFilter) {
+                requiredCandles = Math.max(requiredCandles, swingLookback + 2);
             }
             
             if (candleData[symbol].length < requiredCandles) return;
@@ -2116,15 +2301,11 @@
             const matchingDiffBuy = parseFloat(document.getElementById('matchingDiffBuy').value) / 100;
             const matchingDiffSell = parseFloat(document.getElementById('matchingDiffSell').value) / 100;
 
-            let rsiValue = null;
-            let trendStructure = null;
+            let stochastic = null;
+            let isSwingExtreme = null;
 
-            if (rsiFilter) {
-                rsiValue = calculateRSI(candles.slice(0, -1), rsiPeriod);
-            }
-
-            if (trendStructureFilter) {
-                trendStructure = checkTrendStructure(candles.slice(0, -1), trendLookback);
+            if (stochasticFilter) {
+                stochastic = calculateStochastic(candles.slice(0, -1), stochKPeriod, stochDPeriod, stochSmooth);
             }
 
             const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, lengthFilter, reverseCandleFilter, minLowerWickBuy, minUpperWickBuy, matchingDiffBuy);
@@ -2132,22 +2313,26 @@
                 let shouldTrade = true;
                 let filterInfo = [];
 
-                // RSI Filter Check
-                if (rsiFilter && rsiValue !== null) {
-                    const rsiOversold = parseFloat(document.getElementById('rsiOversold').value);
-                    if (rsiValue >= rsiOversold) {
+                // Stochastic Filter Check (Oversold + %K crossed above %D)
+                if (stochasticFilter && stochastic !== null) {
+                    const stochOversold = parseFloat(document.getElementById('stochOversold').value);
+                    const isOversold = stochastic.k < stochOversold && stochastic.d < stochOversold;
+                    const isCrossover = stochastic.prevK <= stochastic.prevD && stochastic.k > stochastic.d;
+                    
+                    if (!isOversold || !isCrossover) {
                         shouldTrade = false;
                     } else {
-                        filterInfo.push(`RSI: ${rsiValue.toFixed(2)} < ${rsiOversold}`);
+                        filterInfo.push(`Stoch: %K(${stochastic.k.toFixed(1)}) crossed above %D(${stochastic.d.toFixed(1)}) in Oversold`);
                     }
                 }
 
-                // Trend Structure Filter Check (Sell at HH+HL uptrend)
-                if (trendStructureFilter && trendStructure !== null) {
-                    if (trendStructure !== 'downtrend') {
+                // Local Swing Extremes Filter (Low must be lowest of last N candles)
+                if (swingExtremesFilter) {
+                    isSwingExtreme = isLocalSwingExtreme(candles.slice(0, -1).concat(lastCandle), swingLookback, 'low');
+                    if (!isSwingExtreme) {
                         shouldTrade = false;
                     } else {
-                        filterInfo.push(`Trend: LL+LH`);
+                        filterInfo.push(`Local Bottom (Lowest Low of ${swingLookback} candles)`);
                     }
                 }
 
@@ -2166,22 +2351,26 @@
                 let shouldTrade = true;
                 let filterInfo = [];
 
-                // RSI Filter Check
-                if (rsiFilter && rsiValue !== null) {
-                    const rsiOverbought = parseFloat(document.getElementById('rsiOverbought').value);
-                    if (rsiValue <= rsiOverbought) {
+                // Stochastic Filter Check (Overbought + %K crossed below %D)
+                if (stochasticFilter && stochastic !== null) {
+                    const stochOverbought = parseFloat(document.getElementById('stochOverbought').value);
+                    const isOverbought = stochastic.k > stochOverbought && stochastic.d > stochOverbought;
+                    const isCrossover = stochastic.prevK >= stochastic.prevD && stochastic.k < stochastic.d;
+                    
+                    if (!isOverbought || !isCrossover) {
                         shouldTrade = false;
                     } else {
-                        filterInfo.push(`RSI: ${rsiValue.toFixed(2)} > ${rsiOverbought}`);
+                        filterInfo.push(`Stoch: %K(${stochastic.k.toFixed(1)}) crossed below %D(${stochastic.d.toFixed(1)}) in Overbought`);
                     }
                 }
 
-                // Trend Structure Filter Check (Buy at LL+LH downtrend)
-                if (trendStructureFilter && trendStructure !== null) {
-                    if (trendStructure !== 'uptrend') {
+                // Local Swing Extremes Filter (High must be highest of last N candles)
+                if (swingExtremesFilter) {
+                    isSwingExtreme = isLocalSwingExtreme(candles.slice(0, -1).concat(lastCandle), swingLookback, 'high');
+                    if (!isSwingExtreme) {
                         shouldTrade = false;
                     } else {
-                        filterInfo.push(`Trend: HH+HL`);
+                        filterInfo.push(`Local Top (Highest High of ${swingLookback} candles)`);
                     }
                 }
 
@@ -2435,11 +2624,11 @@
             plElement.className = 'stat-value ' + (tradeStats.profitLoss >= 0 ? 'profit' : 'loss');
         }
 
-        // Update trade history table
+        // Update trade history table - FIXED VERSION
         function updateTradeHistoryTable() {
             const tbody = document.getElementById('historyTableBody');
             
-            if (tradeHistory.length === 0) {
+            if (!Array.isArray(tradeHistory) || tradeHistory.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #8899aa;">No trades yet</td></tr>';
                 updateTradeCountDisplay();
                 return;
@@ -2448,16 +2637,19 @@
             tbody.innerHTML = '';
             
             const displayCount = Math.min(tradeHistory.length, 100);
+            
             for (let i = 0; i < displayCount; i++) {
                 const trade = tradeHistory[i];
+                if (!trade) continue;
+                
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${i + 1}</td>
-                    <td>${trade.time}</td>
-                    <td>${trade.market}</td>
-                    <td>${trade.type}</td>
-                    <td>${trade.stake}</td>
-                    <td class="${trade.isWin ? 'result-win' : 'result-loss'}">${trade.result}</td>
+                    <td>${trade.time || '-'}</td>
+                    <td>${trade.market || 'Unknown'}</td>
+                    <td>${trade.type || '-'}</td>
+                    <td>${trade.stake || '0.00'}</td>
+                    <td class="${trade.isWin ? 'result-win' : 'result-loss'}">${trade.result || '0.00'}</td>
                 `;
                 tbody.appendChild(row);
             }
@@ -2487,7 +2679,7 @@
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
-                rsiCache[symbol] = {};
+                stochCache[symbol] = {};
             });
             
             document.getElementById('autoTradeBtn').textContent = 'Stop Auto Trade';
@@ -2502,17 +2694,18 @@
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            const rsiFilter = document.getElementById('rsiFilter').checked;
-            const trendStructureFilter = document.getElementById('trendStructureFilter').checked;
-            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
-            const trendLookback = parseInt(document.getElementById('trendLookback').value);
+            const stochasticFilter = document.getElementById('stochasticFilter').checked;
+            const swingExtremesFilter = document.getElementById('swingExtremesFilter').checked;
+            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
+            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
+            const swingLookback = parseInt(document.getElementById('swingLookback').value);
             
             let requiredCandles = 3;
-            if (rsiFilter) {
-                requiredCandles = Math.max(requiredCandles, rsiPeriod + 2);
+            if (stochasticFilter) {
+                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 2);
             }
-            if (trendStructureFilter) {
-                requiredCandles = Math.max(requiredCandles, trendLookback + 2);
+            if (swingExtremesFilter) {
+                requiredCandles = Math.max(requiredCandles, swingLookback + 2);
             }
             
             logActivity('Auto trading started', 'success');
@@ -2521,16 +2714,18 @@
             
             // Log active filters
             const activeFilters = [];
-            if (rsiFilter) {
-                const oversold = document.getElementById('rsiOversold').value;
-                const overbought = document.getElementById('rsiOverbought').value;
-                activeFilters.push(`RSI Filter (${rsiPeriod}) - Buy<${oversold}, Sell>${overbought}`);
+            if (stochasticFilter) {
+                const oversold = document.getElementById('stochOversold').value;
+                const overbought = document.getElementById('stochOverbought').value;
+                activeFilters.push(`Stochastic (K:${stochKPeriod}, D:${stochDPeriod}) - Buy:<${oversold} + K↑D, Sell:>${overbought} + K↓D`);
             }
-            if (trendStructureFilter) activeFilters.push(`Trend Structure (${trendLookback} candles) - Sell@HH+HL, Buy@LL+LH`);
+            if (swingExtremesFilter) {
+                activeFilters.push(`Local Swing Extremes (${swingLookback} candles) - Buy@Lowest Low, Sell@Highest High`);
+            }
             if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
             if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
             if (document.getElementById('lengthFilter').checked) activeFilters.push('Length Filter');
-            if (document.getElementById('reverseCandleFilter').checked) activeFilters.push('Reverse Candle (Green→Red for Buy, Red→Green for Sell)');
+            if (document.getElementById('reverseCandleFilter').checked) activeFilters.push('Reverse Candle');
             
             if (activeFilters.length > 0) {
                 logActivity(`Active filters: ${activeFilters.join(', ')}`, 'info');
@@ -2645,22 +2840,23 @@
         });
 
         // Filter change listeners
-        document.getElementById('rsiFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('rsiFilter').checked;
-            const rsiPeriod = document.getElementById('rsiPeriod').value;
-            const oversold = document.getElementById('rsiOversold').value;
-            const overbought = document.getElementById('rsiOverbought').value;
-            logActivity(`RSI filter ${enabled ? `enabled (Period: ${rsiPeriod}, Buy<${oversold}, Sell>${overbought})` : 'disabled'}`);
+        document.getElementById('stochasticFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('stochasticFilter').checked;
+            const kPeriod = document.getElementById('stochKPeriod').value;
+            const dPeriod = document.getElementById('stochDPeriod').value;
+            const oversold = document.getElementById('stochOversold').value;
+            const overbought = document.getElementById('stochOverbought').value;
+            logActivity(`Stochastic filter ${enabled ? `enabled (K:${kPeriod}, D:${dPeriod}, Buy:<${oversold} + K↑D, Sell:>${overbought} + K↓D)` : 'disabled'}`);
             if (isAutoTrading) {
                 updateCandleCounter();
             }
             saveSettings();
         });
 
-        document.getElementById('trendStructureFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('trendStructureFilter').checked;
-            const lookback = document.getElementById('trendLookback').value;
-            logActivity(`Trend Structure filter ${enabled ? `enabled (Lookback: ${lookback} candles, Sell@HH+HL, Buy@LL+LH)` : 'disabled'}`);
+        document.getElementById('swingExtremesFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('swingExtremesFilter').checked;
+            const lookback = document.getElementById('swingLookback').value;
+            logActivity(`Local Swing Extremes filter ${enabled ? `enabled (${lookback} candles, Buy@Lowest Low, Sell@Highest High)` : 'disabled'}`);
             if (isAutoTrading) {
                 updateCandleCounter();
             }
@@ -2683,9 +2879,6 @@
         document.getElementById('lengthFilter').addEventListener('change', () => {
             const enabled = document.getElementById('lengthFilter').checked;
             logActivity(`Length filter ${enabled ? 'enabled' : 'disabled'}`);
-            if (enabled) {
-                logActivity('Length Filter: Confirmation candle height must be ≤ first candle height', 'info');
-            }
             checkFilterConflicts();
             saveSettings();
         });
@@ -2693,14 +2886,44 @@
         document.getElementById('reverseCandleFilter').addEventListener('change', () => {
             const enabled = document.getElementById('reverseCandleFilter').checked;
             logActivity(`Reverse Candle filter ${enabled ? 'enabled' : 'disabled'}`);
-            if (enabled) {
-                logActivity('Reverse Candle: Buy = Green→Red (Matching Lows), Sell = Red→Green (Matching Highs)', 'info');
-            } else {
-                logActivity('Normal Candle: Buy = Red→Green (Matching Lows), Sell = Green→Red (Matching Highs)', 'info');
-            }
             saveSettings();
         });
 
+        // Auto-refresh filter listener
+        document.getElementById('autoRefreshFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('autoRefreshFilter').checked;
+            
+            if (enabled) {
+                const interval = document.getElementById('refreshInterval').value;
+                logActivity(`Auto-refresh filter enabled (${interval} hour(s))`, 'success');
+                
+                if (isLoggedIn) {
+                    startAutoRefresh();
+                } else {
+                    logActivity('Auto-refresh will start after login', 'info');
+                }
+            } else {
+                logActivity('Auto-refresh filter disabled', 'info');
+                stopAutoRefresh();
+            }
+            
+            saveSettings();
+        });
+
+        // Refresh interval change listener
+        document.getElementById('refreshInterval').addEventListener('change', () => {
+            const interval = document.getElementById('refreshInterval').value;
+            logActivity(`Auto-refresh interval updated to ${interval} hour(s)`);
+            saveSettings();
+            
+            // Restart timer if auto-refresh is active
+            if (document.getElementById('autoRefreshFilter').checked && isLoggedIn) {
+                stopAutoRefresh();
+                startAutoRefresh();
+            }
+        });
+
+        // Settings change listeners
         document.getElementById('stakeAmount').addEventListener('change', () => {
             logActivity(`Stake amount updated to ${document.getElementById('stakeAmount').value}`);
             saveSettings();
@@ -2716,33 +2939,53 @@
             saveSettings();
         });
 
-        document.getElementById('rsiPeriod').addEventListener('change', () => {
-            const rsiPeriod = document.getElementById('rsiPeriod').value;
-            logActivity(`RSI period updated to ${rsiPeriod}`);
+        document.getElementById('stochKPeriod').addEventListener('change', () => {
+            const period = document.getElementById('stochKPeriod').value;
+            logActivity(`Stochastic %K period updated to ${period}`);
             
-            Object.keys(rsiCache).forEach(symbol => {
-                rsiCache[symbol] = {};
+            Object.keys(stochCache).forEach(symbol => {
+                stochCache[symbol] = {};
             });
             
-            if (isAutoTrading && document.getElementById('rsiFilter').checked) {
+            if (isAutoTrading && document.getElementById('stochasticFilter').checked) {
                 updateCandleCounter();
             }
             saveSettings();
         });
 
-        document.getElementById('rsiOversold').addEventListener('change', () => {
-            logActivity(`RSI oversold level updated to ${document.getElementById('rsiOversold').value}`);
+        document.getElementById('stochDPeriod').addEventListener('change', () => {
+            logActivity(`Stochastic %D period updated to ${document.getElementById('stochDPeriod').value}`);
+            
+            Object.keys(stochCache).forEach(symbol => {
+                stochCache[symbol] = {};
+            });
+            
             saveSettings();
         });
 
-        document.getElementById('rsiOverbought').addEventListener('change', () => {
-            logActivity(`RSI overbought level updated to ${document.getElementById('rsiOverbought').value}`);
+        document.getElementById('stochSmooth').addEventListener('change', () => {
+            logActivity(`Stochastic smooth updated to ${document.getElementById('stochSmooth').value}`);
+            
+            Object.keys(stochCache).forEach(symbol => {
+                stochCache[symbol] = {};
+            });
+            
             saveSettings();
         });
 
-        document.getElementById('trendLookback').addEventListener('change', () => {
-            logActivity(`Trend lookback updated to ${document.getElementById('trendLookback').value} candles`);
-            if (isAutoTrading && document.getElementById('trendStructureFilter').checked) {
+        document.getElementById('stochOversold').addEventListener('change', () => {
+            logActivity(`Stochastic oversold level updated to ${document.getElementById('stochOversold').value}`);
+            saveSettings();
+        });
+
+        document.getElementById('stochOverbought').addEventListener('change', () => {
+            logActivity(`Stochastic overbought level updated to ${document.getElementById('stochOverbought').value}`);
+            saveSettings();
+        });
+
+        document.getElementById('swingLookback').addEventListener('change', () => {
+            logActivity(`Swing lookback updated to ${document.getElementById('swingLookback').value} candles`);
+            if (isAutoTrading && document.getElementById('swingExtremesFilter').checked) {
                 updateCandleCounter();
             }
             saveSettings();
@@ -2758,107 +3001,12 @@
             saveSettings();
         });
 
-        document.getElementById('minLowerWickBuy').addEventListener('change', () => {
-            logActivity(`Min lower wick (Buy) updated to ${document.getElementById('minLowerWickBuy').value}%`);
-            saveSettings();
-        });
-
-        document.getElementById('minUpperWickSell').addEventListener('change', () => {
-            logActivity(`Min upper wick (Sell) updated to ${document.getElementById('minUpperWickSell').value}%`);
-            saveSettings();
-        });
-
-        document.getElementById('minUpperWickBuy').addEventListener('change', () => {
-            logActivity(`Min upper wick (Buy) updated to ${document.getElementById('minUpperWickBuy').value}%`);
-            saveSettings();
-        });
-
-        document.getElementById('minLowerWickSell').addEventListener('change', () => {
-            logActivity(`Min lower wick (Sell) updated to ${document.getElementById('minLowerWickSell').value}%`);
-            saveSettings();
-        });
-
-        document.getElementById('matchingDiffBuy').addEventListener('change', () => {
-            logActivity(`Matching diff (Buy) updated to ${document.getElementById('matchingDiffBuy').value}%`);
-            saveSettings();
-        });
-
-        document.getElementById('matchingDiffSell').addEventListener('change', () => {
-            logActivity(`Matching diff (Sell) updated to ${document.getElementById('matchingDiffSell').value}%`);
-            saveSettings();
-        });
-
-        // Validate input fields
-        function validateInputs() {
-            const stakeAmount = parseFloat(document.getElementById('stakeAmount').value);
-            const stopLoss = parseFloat(document.getElementById('stopLoss').value);
-            const takeProfit = parseFloat(document.getElementById('takeProfit').value);
-            const rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
-            const rsiOversold = parseInt(document.getElementById('rsiOversold').value);
-            const rsiOverbought = parseInt(document.getElementById('rsiOverbought').value);
-            const trendLookback = parseInt(document.getElementById('trendLookback').value);
-            const durationValue = parseInt(document.getElementById('durationValue').value);
-
-            if (stakeAmount < 0.35) {
-                logActivity('Stake amount must be at least 0.35', 'error');
-                document.getElementById('stakeAmount').value = 0.35;
-                return false;
-            }
-
-            if (stopLoss < 0) {
-                logActivity('Stop loss cannot be negative', 'error');
-                document.getElementById('stopLoss').value = 0;
-                return false;
-            }
-
-            if (takeProfit < 0) {
-                logActivity('Take profit cannot be negative', 'error');
-                document.getElementById('takeProfit').value = 0;
-                return false;
-            }
-
-            if (rsiPeriod < 5 || rsiPeriod > 50) {
-                logActivity('RSI period must be between 5 and 50', 'error');
-                document.getElementById('rsiPeriod').value = 14;
-                return false;
-            }
-
-            if (rsiOversold < 10 || rsiOversold > 50) {
-                logActivity('RSI oversold must be between 10 and 50', 'error');
-                document.getElementById('rsiOversold').value = 30;
-                return false;
-            }
-
-            if (rsiOverbought < 50 || rsiOverbought > 90) {
-                logActivity('RSI overbought must be between 50 and 90', 'error');
-                document.getElementById('rsiOverbought').value = 70;
-                return false;
-            }
-
-            if (trendLookback < 3 || trendLookback > 20) {
-                logActivity('Trend lookback must be between 3 and 20', 'error');
-                document.getElementById('trendLookback').value = 5;
-                return false;
-            }
-
-            if (durationValue < 1) {
-                logActivity('Duration value must be at least 1', 'error');
-                document.getElementById('durationValue').value = 1;
-                return false;
-            }
-
-            return true;
-        }
-
-        // Add input validation listeners
-        document.getElementById('stakeAmount').addEventListener('blur', validateInputs);
-        document.getElementById('stopLoss').addEventListener('blur', validateInputs);
-        document.getElementById('takeProfit').addEventListener('blur', validateInputs);
-        document.getElementById('rsiPeriod').addEventListener('blur', validateInputs);
-        document.getElementById('rsiOversold').addEventListener('blur', validateInputs);
-        document.getElementById('rsiOverbought').addEventListener('blur', validateInputs);
-        document.getElementById('trendLookback').addEventListener('blur', validateInputs);
-        document.getElementById('durationValue').addEventListener('blur', validateInputs);
+        document.getElementById('minLowerWickBuy').addEventListener('blur', saveSettings);
+        document.getElementById('minUpperWickSell').addEventListener('blur', saveSettings);
+        document.getElementById('minUpperWickBuy').addEventListener('blur', saveSettings);
+        document.getElementById('minLowerWickSell').addEventListener('blur', saveSettings);
+        document.getElementById('matchingDiffBuy').addEventListener('blur', saveSettings);
+        document.getElementById('matchingDiffSell').addEventListener('blur', saveSettings);
 
         // Monitor WebSocket health
         function checkWebSocketHealth() {
@@ -2895,22 +3043,6 @@
                     }
                 }
             }
-
-            if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
-                e.preventDefault();
-                if (isLoggedIn && document.getElementById('reverseModeBtn').disabled === false) {
-                    isReverseMode = !isReverseMode;
-                    updateReverseModeButton();
-                    updateReverseModeIndicator();
-                    saveSettings();
-                    
-                    if (isReverseMode) {
-                        logActivity('Reverse Mode ENABLED via keyboard shortcut', 'success');
-                    } else {
-                        logActivity('Reverse Mode DISABLED via keyboard shortcut', 'info');
-                    }
-                }
-            }
         });
 
         // Visual connection status
@@ -2923,6 +3055,59 @@
         }
 
         setInterval(updateConnectionStatus, 1000);
+
+        // Network status monitoring
+        window.addEventListener('online', () => {
+            logActivity('Network connection restored', 'success');
+            updateConnectionBadge('connected');
+            
+            if (isLoggedIn && (!ws || ws.readyState !== WebSocket.OPEN)) {
+                const token = sessionStorage.getItem('derivToken');
+                if (token) {
+                    logActivity('Attempting to reconnect...', 'info');
+                    connectWebSocket(token, true).catch(err => {
+                        logActivity('Reconnection failed', 'error');
+                    });
+                }
+            }
+        });
+
+        window.addEventListener('offline', () => {
+            logActivity('Network connection lost!', 'error');
+            updateConnectionBadge('disconnected');
+        });
+
+        // Auto-reconnect on page refresh/reload
+        window.addEventListener('beforeunload', () => {
+            saveSettings();
+        });
+
+        window.addEventListener('load', () => {
+            // Handle post-refresh recovery
+            handlePostRefreshRecovery();
+            
+            const savedToken = sessionStorage.getItem('derivToken');
+            const wasAutoTrading = sessionStorage.getItem('wasAutoTrading') === 'true';
+            
+            if (savedToken && !isLoggedIn) {
+                document.getElementById('apiToken').value = savedToken;
+                logActivity('Saved token found. Auto-login in 0.5s...', 'info');
+                
+                setTimeout(() => {
+                    document.getElementById('loginBtn').click();
+                    
+                    // Resume auto trading if it was active before refresh
+                    if (wasAutoTrading) {
+                        setTimeout(() => {
+                            if (isLoggedIn && !isAutoTrading) {
+                                logActivity('Resuming auto trading after refresh...', 'info');
+                                startAutoTrading();
+                            }
+                        }, 2000);
+                    }
+                }, 500);
+            }
+        });
 
         // Error boundaries
         window.addEventListener('error', (e) => {
@@ -2965,99 +3150,6 @@
             logActivity('Trade history exported successfully', 'success');
         };
 
-        // Reset all settings
-        window.resetAllSettings = function() {
-            if (confirm('Are you sure you want to reset all settings to default? This will clear all saved data including trade history.')) {
-                sessionStorage.clear();
-                location.reload();
-            }
-        };
-
-        // Tooltips
-        const tooltips = {
-            'stakeAmount': 'Amount to stake per trade (minimum 0.35)',
-            'stopLoss': 'Stop trading when total loss reaches this amount',
-            'takeProfit': 'Stop trading when total profit reaches this amount',
-            'rsiPeriod': 'RSI calculation period (5-50)',
-            'rsiOversold': 'RSI oversold level - Buy only if RSI < this value (10-50)',
-            'rsiOverbought': 'RSI overbought level - Sell only if RSI > this value (50-90)',
-            'trendLookback': 'Number of candles to analyze for trend structure (3-20)',
-            'durationType': 'Unit of time for trade duration',
-            'durationValue': 'Number of units for trade duration',
-            'rsiFilter': 'RSI Filter: Buy when RSI<Oversold, Sell when RSI>Overbought',
-            'trendStructureFilter': 'Trend Structure: Sell at HH+HL (uptrend), Buy at LL+LH (downtrend)',
-            'zeroClosingFilter': 'Only trade on PERFECT candle closes (exactly 0 opposite wick)',
-            'ignoreHeightFilter': 'Allow confirmation candle to be any height',
-            'lengthFilter': 'Confirmation candle height must be ≤ first candle height',
-            'reverseCandleFilter': 'Reverse candle color pattern: Buy = Green→Red, Sell = Red→Green',
-            'reverseModeBtn': 'Reverse all signals: Buy becomes Sell, Sell becomes Buy'
-        };
-
-        Object.entries(tooltips).forEach(([id, text]) => {
-            const element = document.getElementById(id);
-            if (element) {
-                element.title = text;
-            }
-        });
-
-        // Responsive font sizing
-        function adjustFontSizes() {
-            const width = window.innerWidth;
-            const root = document.documentElement;
-            
-            if (width < 480) {
-                root.style.fontSize = '14px';
-            } else if (width < 768) {
-                root.style.fontSize = '15px';
-            } else {
-                root.style.fontSize = '16px';
-            }
-        }
-
-        window.addEventListener('resize', adjustFontSizes);
-        adjustFontSizes();
-
-        // Network status monitoring
-        window.addEventListener('online', () => {
-            logActivity('Network connection restored', 'success');
-            updateConnectionBadge('connected');
-            
-            if (isLoggedIn && (!ws || ws.readyState !== WebSocket.OPEN)) {
-                const token = sessionStorage.getItem('derivToken');
-                if (token) {
-                    logActivity('Attempting to reconnect...', 'info');
-                    connectWebSocket(token, true).catch(err => {
-                        logActivity('Reconnection failed', 'error');
-                    });
-                }
-            }
-        });
-
-        window.addEventListener('offline', () => {
-            logActivity('Network connection lost!', 'error');
-            updateConnectionBadge('disconnected');
-        });
-
-        // Auto-reconnect on page refresh/reload
-        window.addEventListener('beforeunload', () => {
-            saveSettings();
-        });
-
-        window.addEventListener('load', () => {
-            const savedToken = sessionStorage.getItem('derivToken');
-            const wasAutoTrading = sessionStorage.getItem('wasAutoTrading');
-            
-            if (savedToken && !isLoggedIn) {
-                document.getElementById('apiToken').value = savedToken;
-                logActivity('Saved token found. Click Login to reconnect.', 'info');
-                
-                // Auto-login on page refresh if token exists
-                setTimeout(() => {
-                    document.getElementById('loginBtn').click();
-                }, 500);
-            }
-        });
-
         // Initialize app
         loadSettings();
         renderMarkets();
@@ -3065,18 +3157,18 @@
 
         // Log system information
         logActivity(`Browser: ${navigator.userAgent}`, 'info');
-        logActivity(`Screen resolution: ${window.screen.width}x${window.screen.height}`, 'info');
         logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
 
         // Log startup complete
         setTimeout(() => {
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
-            logActivity('NEW: RSI Filter replaces EMA - Buy<30 Oversold, Sell>70 Overbought', 'success');
-            logActivity('NEW: Trend Structure Filter - Sell@HH+HL, Buy@LL+LH', 'success');
-            logActivity('NEW: Enhanced Auto-Reconnect with exponential backoff', 'success');
-            logActivity('Features: RSI, Trend Structure, Zero Closing, Length, Reverse Candle', 'success');
+            logActivity('NEW: Auto-Refresh Feature - Browser refreshes at set intervals and resumes operation', 'success');
+            logActivity('NEW: Stochastic Oscillator Filter - Triple Confirmation (Overbought/Oversold + Crossover + Pattern)', 'success');
+            logActivity('NEW: Local Swing Extremes - Buy@Lowest Low, Sell@Highest High', 'success');
+            logActivity('Features: Stochastic, Swing Extremes, Zero Closing, Length, Reverse Candle, Auto-Refresh', 'success');
+            logActivity('Auto-Reconnect: Enabled with exponential backoff (up to 10 attempts)', 'success');
+            logActivity('FIXED: Trade History now updates correctly with all trade results', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
-            logActivity('Tip: Press Ctrl+R to toggle reverse mode', 'info');
             logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
             logActivity('App ID: 116948 | All systems operational', 'success');
         }, 1000);
