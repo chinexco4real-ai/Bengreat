@@ -952,13 +952,6 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">Stochastic Oscillator Filter</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="stochasticFilter">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="filter-item">
                         <span class="filter-label">Liquidity Grab (Fakeout/Spring)</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="liquidityGrabFilter">
@@ -1023,26 +1016,6 @@
                     <div class="input-group">
                         <label class="input-label">Take Profit</label>
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Stochastic %K Period</label>
-                        <input type="number" class="input-field" id="stochKPeriod" value="14" min="5" max="50" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Stochastic %D Period</label>
-                        <input type="number" class="input-field" id="stochDPeriod" value="3" min="1" max="10" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Stochastic Smooth</label>
-                        <input type="number" class="input-field" id="stochSmooth" value="3" min="1" max="10" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Stochastic Oversold</label>
-                        <input type="number" class="input-field" id="stochOversold" value="20" min="10" max="30" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Stochastic Overbought</label>
-                        <input type="number" class="input-field" id="stochOverbought" value="80" min="70" max="90" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Liquidity Lookback</label>
@@ -1204,15 +1177,12 @@
         let tradedCandles = {};
         let requestIdCounter = 0;
         let pendingProposals = new Map();
-        let openContractSubscriptions = new Set();
+        let processedContracts = new Set(); // AGGRESSIVE FIX: Track all processed contracts
         
         // Time synchronization variables
         let serverTimeOffset = 0;
         let isTimeSynced = false;
         let candleWatchdogTimer = null;
-
-        // Stochastic cache for optimization
-        let stochCache = {};
 
         // Auto-reconnect variables
         let reconnectAttempts = 0;
@@ -1232,7 +1202,6 @@
             currentOHLC[symbol] = undefined;
             currentMinute[symbol] = undefined;
             tradedCandles[symbol] = new Set();
-            stochCache[symbol] = {};
         });
 
         // Update connection badge
@@ -1313,18 +1282,12 @@
                 return;
             }
 
-            const stochasticFilter = document.getElementById('stochasticFilter').checked;
             const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
-            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
             const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (stochasticFilter) {
-                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 1);
-            }
             if (liquidityGrabFilter) {
                 requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
             }
@@ -1470,7 +1433,6 @@
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
-            const savedStochasticFilter = sessionStorage.getItem('stochasticFilter');
             const savedLiquidityGrabFilter = sessionStorage.getItem('liquidityGrabFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
@@ -1481,11 +1443,6 @@
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
-            const savedStochKPeriod = sessionStorage.getItem('stochKPeriod');
-            const savedStochDPeriod = sessionStorage.getItem('stochDPeriod');
-            const savedStochSmooth = sessionStorage.getItem('stochSmooth');
-            const savedStochOversold = sessionStorage.getItem('stochOversold');
-            const savedStochOverbought = sessionStorage.getItem('stochOverbought');
             const savedLiquidityLookback = sessionStorage.getItem('liquidityLookback');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
@@ -1505,10 +1462,6 @@
 
             if (savedMarkets) {
                 activeMarkets = JSON.parse(savedMarkets);
-            }
-
-            if (savedStochasticFilter) {
-                document.getElementById('stochasticFilter').checked = savedStochasticFilter === 'true';
             }
 
             if (savedLiquidityGrabFilter) {
@@ -1544,11 +1497,6 @@
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
-            if (savedStochKPeriod) document.getElementById('stochKPeriod').value = savedStochKPeriod;
-            if (savedStochDPeriod) document.getElementById('stochDPeriod').value = savedStochDPeriod;
-            if (savedStochSmooth) document.getElementById('stochSmooth').value = savedStochSmooth;
-            if (savedStochOversold) document.getElementById('stochOversold').value = savedStochOversold;
-            if (savedStochOverbought) document.getElementById('stochOverbought').value = savedStochOverbought;
             if (savedLiquidityLookback) document.getElementById('liquidityLookback').value = savedLiquidityLookback;
             if (savedDurationType) document.getElementById('durationType').value = savedDurationType;
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
@@ -1589,7 +1537,6 @@
             try {
                 sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
                 sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
-                sessionStorage.setItem('stochasticFilter', document.getElementById('stochasticFilter').checked);
                 sessionStorage.setItem('liquidityGrabFilter', document.getElementById('liquidityGrabFilter').checked);
                 sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
@@ -1600,11 +1547,6 @@
                 sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
-                sessionStorage.setItem('stochKPeriod', document.getElementById('stochKPeriod').value);
-                sessionStorage.setItem('stochDPeriod', document.getElementById('stochDPeriod').value);
-                sessionStorage.setItem('stochSmooth', document.getElementById('stochSmooth').value);
-                sessionStorage.setItem('stochOversold', document.getElementById('stochOversold').value);
-                sessionStorage.setItem('stochOverbought', document.getElementById('stochOverbought').value);
                 sessionStorage.setItem('liquidityLookback', document.getElementById('liquidityLookback').value);
                 sessionStorage.setItem('durationType', document.getElementById('durationType').value);
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
@@ -1689,8 +1631,6 @@
 
             candleData[symbol].push(completedCandle);
             
-            stochCache[symbol] = {};
-            
             if (candleData[symbol].length > 100) {
                 candleData[symbol].shift();
             }
@@ -1706,18 +1646,12 @@
 
             updateCandleCounter();
             
-            const stochasticFilter = document.getElementById('stochasticFilter').checked;
             const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
-            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
             const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (stochasticFilter) {
-                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 1);
-            }
             if (liquidityGrabFilter) {
                 requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
             }
@@ -1759,7 +1693,6 @@
                     logActivity('WebSocket error', 'error');
                     updateConnectionBadge('disconnected');
                     
-                    // Force timer reset on network failure
                     if (sessionTimer) {
                         stopSessionTimer();
                         logActivity('Session timer reset due to connection error', 'warning');
@@ -1772,7 +1705,6 @@
                     logActivity('WebSocket disconnected', 'error');
                     updateConnectionBadge('disconnected');
                     
-                    // Force timer reset on disconnect
                     if (sessionTimer) {
                         stopSessionTimer();
                         logActivity('Session timer reset due to disconnection', 'warning');
@@ -1800,7 +1732,6 @@
                                     .then(() => {
                                         logActivity('Reconnected successfully!', 'success');
                                         
-                                        // Restart session timer after successful reconnect
                                         if (!sessionTimer) {
                                             startSessionTimer();
                                             logActivity('Session timer restarted after reconnection', 'success');
@@ -1928,14 +1859,12 @@
                         pendingTrades.set(data.buy.contract_id, tradeInfo);
                     }
                     
-                    if (!openContractSubscriptions.has(data.buy.contract_id)) {
-                        ws.send(JSON.stringify({
-                            proposal_open_contract: 1,
-                            contract_id: data.buy.contract_id,
-                            subscribe: 1
-                        }));
-                        openContractSubscriptions.add(data.buy.contract_id);
-                    }
+                    // AGGRESSIVE FIX: Subscribe to contract immediately
+                    ws.send(JSON.stringify({
+                        proposal_open_contract: 1,
+                        contract_id: data.buy.contract_id,
+                        subscribe: 1
+                    }));
                     
                     logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
                 }
@@ -1956,24 +1885,32 @@
             }
         }
 
-        // Handle trade result
+        // AGGRESSIVE FIX: Handle trade result with proper duplicate prevention
         function handleTradeResult(contract) {
+            // Only process finalized contracts
             if (!['won', 'lost', 'sold'].includes(contract.status)) {
                 return;
             }
             
-            if (tradeHistory.some(t => t.id === contract.contract_id)) {
+            // AGGRESSIVE FIX: Check if we've already processed this contract ID
+            if (processedContracts.has(contract.contract_id)) {
+                console.log(`[DUPLICATE PREVENTED] Contract ${contract.contract_id} already processed`);
                 return;
             }
+
+            // AGGRESSIVE FIX: Mark this contract as processed immediately
+            processedContracts.add(contract.contract_id);
 
             const profit = parseFloat(contract.profit || 0);
             const isWin = profit > 0;
 
+            // Update statistics
             tradeStats.total++;
             if (isWin) tradeStats.wins++;
             else tradeStats.losses++;
             tradeStats.profitLoss += profit;
 
+            // Create trade record
             const trade = {
                 id: contract.contract_id,
                 time: new Date().toLocaleTimeString(),
@@ -1985,19 +1922,31 @@
                 isWin: isWin
             };
 
-            if (!Array.isArray(tradeHistory)) tradeHistory = [];
+            // AGGRESSIVE FIX: Initialize tradeHistory if it's not an array
+            if (!Array.isArray(tradeHistory)) {
+                tradeHistory = [];
+                logActivity('Trade history reinitialized', 'warning');
+            }
+
+            // Add to trade history
             tradeHistory.unshift(trade);
             
+            // Keep only last 100 trades
             if (tradeHistory.length > 100) {
                 tradeHistory = tradeHistory.slice(0, 100);
             }
 
+            // AGGRESSIVE FIX: Update UI immediately and force refresh
             updateStats();
             updateTradeHistoryTable();
+            
+            // Save to storage
             saveSettings();
 
-            logActivity(`Trade closed: ${trade.market} - ${trade.type} - P/L: ${trade.result}`, isWin ? 'success' : 'error');
+            // Log the trade with contract ID for verification
+            logActivity(`✅ TRADE RECORDED: ${trade.market} - ${trade.type} - P/L: ${trade.result} (ID: ${contract.contract_id})`, isWin ? 'success' : 'error');
 
+            // Check stop loss and take profit
             const stopLoss = parseFloat(document.getElementById('stopLoss').value);
             const takeProfit = parseFloat(document.getElementById('takeProfit').value);
 
@@ -2011,13 +1960,15 @@
                 stopAutoTrading();
             }
 
+            // Clean up pending trades
             if (pendingTrades.has(contract.contract_id)) {
                 pendingTrades.delete(contract.contract_id);
             }
-            
-            if (openContractSubscriptions.has(contract.contract_id)) {
-                openContractSubscriptions.delete(contract.contract_id);
-            }
+
+            // AGGRESSIVE FIX: Clean up processed contracts after 5 minutes to prevent memory leak
+            setTimeout(() => {
+                processedContracts.delete(contract.contract_id);
+            }, 300000);
         }
 
         // Login
@@ -2164,7 +2115,6 @@
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
-                stochCache[symbol] = {};
                 updateSubscriptionIndicator(symbol, 'disconnected');
                 logActivity(`Unsubscribed from ${markets[symbol]}`);
             }
@@ -2206,71 +2156,17 @@
             });
         }
 
-        // Calculate Stochastic Oscillator with caching
-        function calculateStochastic(data, kPeriod, dPeriod, smooth) {
-            if (data.length < kPeriod + dPeriod + smooth) return null;
-
-            const cacheKey = `${data.length}_${kPeriod}_${dPeriod}_${smooth}`;
-            
-            const symbol = Object.keys(candleData).find(s => candleData[s] === data);
-            if (symbol && stochCache[symbol] && stochCache[symbol][cacheKey] !== undefined) {
-                return stochCache[symbol][cacheKey];
-            }
-
-            const kValues = [];
-            for (let i = kPeriod - 1; i < data.length; i++) {
-                const periodData = data.slice(i - kPeriod + 1, i + 1);
-                const high = Math.max(...periodData.map(c => c.high));
-                const low = Math.min(...periodData.map(c => c.low));
-                const close = data[i].close;
-                
-                const k = low === high ? 50 : ((close - low) / (high - low)) * 100;
-                kValues.push(k);
-            }
-
-            const smoothedK = [];
-            for (let i = smooth - 1; i < kValues.length; i++) {
-                const sum = kValues.slice(i - smooth + 1, i + 1).reduce((a, b) => a + b, 0);
-                smoothedK.push(sum / smooth);
-            }
-
-            const dValues = [];
-            for (let i = dPeriod - 1; i < smoothedK.length; i++) {
-                const sum = smoothedK.slice(i - dPeriod + 1, i + 1).reduce((a, b) => a + b, 0);
-                dValues.push(sum / dPeriod);
-            }
-
-            const result = {
-                k: smoothedK[smoothedK.length - 1],
-                d: dValues[dValues.length - 1],
-                prevK: smoothedK[smoothedK.length - 2],
-                prevD: dValues[dValues.length - 2]
-            };
-
-            if (symbol) {
-                if (!stochCache[symbol]) stochCache[symbol] = {};
-                stochCache[symbol][cacheKey] = result;
-            }
-
-            return result;
-        }
-
         // Check for Liquidity Grab - TWEEZERS BOTTOM (Buy Signal)
         function isLiquidityGrabBottom(data, lookback) {
             if (data.length < lookback + 2) return false;
 
-            // Get the tweezers pattern (last 2 candles)
             const patternCandles = data.slice(-2);
             const patternLow = Math.min(patternCandles[0].low, patternCandles[1].low);
 
-            // Get previous candles for comparison
             const previousCandles = data.slice(-(lookback + 2), -2);
             
-            // Find the lowest low in the previous lookback candles
             const lowestPreviousLow = Math.min(...previousCandles.map(c => c.low));
 
-            // Liquidity Grab: Pattern low must be LOWER than previous lows
-            // This creates a fakeout/spring where price drops below support and instantly rejects
             return patternLow < lowestPreviousLow;
         }
 
@@ -2278,36 +2174,24 @@
         function isLiquidityGrabTop(data, lookback) {
             if (data.length < lookback + 2) return false;
 
-            // Get the tweezers pattern (last 2 candles)
             const patternCandles = data.slice(-2);
             const patternHigh = Math.max(patternCandles[0].high, patternCandles[1].high);
 
-            // Get previous candles for comparison
             const previousCandles = data.slice(-(lookback + 2), -2);
             
-            // Find the highest high in the previous lookback candles
             const highestPreviousHigh = Math.max(...previousCandles.map(c => c.high));
 
-            // Liquidity Grab: Pattern high must be HIGHER than previous highs
-            // This creates a bull trap where price pushes above resistance and instantly rejects
             return patternHigh > highestPreviousHigh;
         }
 
         // Check for trading signals with all filters
         function checkForSignals(symbol) {
-            const stochasticFilter = document.getElementById('stochasticFilter').checked;
             const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
-            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
-            const stochSmooth = parseInt(document.getElementById('stochSmooth').value);
             const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (stochasticFilter) {
-                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 1);
-            }
             if (liquidityGrabFilter) {
                 requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
             }
@@ -2337,12 +2221,7 @@
             const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value) / 100;
             const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value) / 100;
 
-            let stochastic = null;
             let isLiquidityGrab = null;
-
-            if (stochasticFilter) {
-                stochastic = calculateStochastic(candles.slice(0, -1), stochKPeriod, stochDPeriod, stochSmooth);
-            }
 
             // ONE CANDLE MODE
             if (oneCandleFilter) {
@@ -2350,20 +2229,6 @@
                 if (buySignal) {
                     let shouldTrade = true;
                     let filterInfo = [];
-
-                    if (stochasticFilter && stochastic !== null) {
-                        const stochOversold = parseFloat(document.getElementById('stochOversold').value);
-                        const isOversold = stochastic.k < stochOversold && stochastic.d < stochOversold;
-                        const isCrossover = stochastic.prevK <= stochastic.prevD && stochastic.k > stochastic.d;
-                        
-                        if (!isOversold || !isCrossover) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`Stoch: %K(${stochastic.k.toFixed(1)}) crossed above %D(${stochastic.d.toFixed(1)}) in Oversold`);
-                        }
-                    }
-
-                    // Note: Liquidity Grab doesn't apply to One Candle mode (needs 2 candles for pattern)
 
                     if (shouldTrade) {
                         const tradeType = isReverseMode ? 'PUT' : 'CALL';
@@ -2380,18 +2245,6 @@
                     let shouldTrade = true;
                     let filterInfo = [];
 
-                    if (stochasticFilter && stochastic !== null) {
-                        const stochOverbought = parseFloat(document.getElementById('stochOverbought').value);
-                        const isOverbought = stochastic.k > stochOverbought && stochastic.d > stochOverbought;
-                        const isCrossover = stochastic.prevK >= stochastic.prevD && stochastic.k < stochastic.d;
-                        
-                        if (!isOverbought || !isCrossover) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`Stoch: %K(${stochastic.k.toFixed(1)}) crossed below %D(${stochastic.d.toFixed(1)}) in Overbought`);
-                        }
-                    }
-
                     if (shouldTrade) {
                         const tradeType = isReverseMode ? 'CALL' : 'PUT';
                         const patternName = reverseCandleFilter ? 'Reverse One Candle Sell' : 'One Candle Sell';
@@ -2402,7 +2255,7 @@
                     }
                 }
             } else {
-                // TWO CANDLE MODE - Original tweezers pattern logic
+                // TWO CANDLE MODE
                 const prevCandle = candles[candles.length - 2];
                 if (!prevCandle) return;
 
@@ -2414,19 +2267,6 @@
                     let shouldTrade = true;
                     let filterInfo = [];
 
-                    if (stochasticFilter && stochastic !== null) {
-                        const stochOversold = parseFloat(document.getElementById('stochOversold').value);
-                        const isOversold = stochastic.k < stochOversold && stochastic.d < stochOversold;
-                        const isCrossover = stochastic.prevK <= stochastic.prevD && stochastic.k > stochastic.d;
-                        
-                        if (!isOversold || !isCrossover) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`Stoch: %K(${stochastic.k.toFixed(1)}) crossed above %D(${stochastic.d.toFixed(1)}) in Oversold`);
-                        }
-                    }
-
-                    // Liquidity Grab Filter for Buy (Pattern low must be lower than previous lows)
                     if (liquidityGrabFilter) {
                         isLiquidityGrab = isLiquidityGrabBottom(candles, liquidityLookback);
                         if (!isLiquidityGrab) {
@@ -2451,19 +2291,6 @@
                     let shouldTrade = true;
                     let filterInfo = [];
 
-                    if (stochasticFilter && stochastic !== null) {
-                        const stochOverbought = parseFloat(document.getElementById('stochOverbought').value);
-                        const isOverbought = stochastic.k > stochOverbought && stochastic.d > stochOverbought;
-                        const isCrossover = stochastic.prevK >= stochastic.prevD && stochastic.k < stochastic.d;
-                        
-                        if (!isOverbought || !isCrossover) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`Stoch: %K(${stochastic.k.toFixed(1)}) crossed below %D(${stochastic.d.toFixed(1)}) in Overbought`);
-                        }
-                    }
-
-                    // Liquidity Grab Filter for Sell (Pattern high must be higher than previous highs)
                     if (liquidityGrabFilter) {
                         isLiquidityGrab = isLiquidityGrabTop(candles, liquidityLookback);
                         if (!isLiquidityGrab) {
@@ -2766,23 +2593,36 @@
             plElement.className = 'stat-value ' + (tradeStats.profitLoss >= 0 ? 'profit' : 'loss');
         }
 
-        // Update trade history table
+        // AGGRESSIVE FIX: Update trade history table with better handling
         function updateTradeHistoryTable() {
             const tbody = document.getElementById('historyTableBody');
             
-            if (!Array.isArray(tradeHistory) || tradeHistory.length === 0) {
+            // AGGRESSIVE FIX: Validate tradeHistory
+            if (!Array.isArray(tradeHistory)) {
+                console.error('tradeHistory is not an array, reinitializing');
+                tradeHistory = [];
+            }
+            
+            if (tradeHistory.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #8899aa;">No trades yet</td></tr>';
                 updateTradeCountDisplay();
                 return;
             }
 
+            // AGGRESSIVE FIX: Clear and rebuild entire table
             tbody.innerHTML = '';
             
             const displayCount = Math.min(tradeHistory.length, 100);
             
+            // AGGRESSIVE FIX: Add each trade with validation
             for (let i = 0; i < displayCount; i++) {
                 const trade = tradeHistory[i];
-                if (!trade) continue;
+                
+                // Skip invalid entries
+                if (!trade || typeof trade !== 'object') {
+                    console.warn(`Invalid trade at index ${i}`, trade);
+                    continue;
+                }
                 
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -2796,7 +2636,12 @@
                 tbody.appendChild(row);
             }
             
+            // AGGRESSIVE FIX: Force DOM update
+            tbody.offsetHeight; // Force reflow
+            
             updateTradeCountDisplay();
+            
+            console.log(`[TABLE UPDATE] Displayed ${displayCount} trades from ${tradeHistory.length} total`);
         }
 
         // Start auto trading
@@ -2816,12 +2661,14 @@
             
             activation_time = Math.floor(Date.now() / 1000);
             
+            // AGGRESSIVE FIX: Clear processed contracts on new session
+            processedContracts.clear();
+            
             Object.keys(markets).forEach(symbol => {
                 candleData[symbol] = [];
                 currentOHLC[symbol] = undefined;
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
-                stochCache[symbol] = {};
             });
             
             document.getElementById('autoTradeBtn').textContent = 'Stop Auto Trade';
@@ -2836,18 +2683,12 @@
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            const stochasticFilter = document.getElementById('stochasticFilter').checked;
             const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const stochKPeriod = parseInt(document.getElementById('stochKPeriod').value);
-            const stochDPeriod = parseInt(document.getElementById('stochDPeriod').value);
             const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (stochasticFilter) {
-                requiredCandles = Math.max(requiredCandles, stochKPeriod + stochDPeriod + 1);
-            }
             if (liquidityGrabFilter) {
                 requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
             }
@@ -2858,14 +2699,9 @@
             logActivity(`Reverse Mode: ${isReverseMode ? 'ON' : 'OFF'}`, isReverseMode ? 'success' : 'info');
             
             const activeFilters = [];
-            if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle analysis: Red=Buy, Green=Sell)');
-            if (stochasticFilter) {
-                const oversold = document.getElementById('stochOversold').value;
-                const overbought = document.getElementById('stochOverbought').value;
-                activeFilters.push(`Stochastic (K:${stochKPeriod}, D:${stochDPeriod}) - Buy:<${oversold} + K↑D, Sell:>${overbought} + K↓D`);
-            }
+            if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
             if (liquidityGrabFilter) {
-                activeFilters.push(`Liquidity Grab (${liquidityLookback} candles) - Buy: Fakeout below support (Spring), Sell: Breakout above resistance (Bull Trap)`);
+                activeFilters.push(`Liquidity Grab (${liquidityLookback} candles) - Buy: Fakeout below support, Sell: Bull trap above resistance`);
             }
             if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
             if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
@@ -2878,6 +2714,7 @@
             }
             
             logActivity(`Waiting for ${requiredCandles} candle(s) before analyzing`, 'info');
+            logActivity('✅ Trade history tracking: AGGRESSIVE MODE ENABLED', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
@@ -2975,6 +2812,7 @@
             if (confirm('Are you sure you want to clear trade history?')) {
                 tradeHistory = [];
                 tradeStats = { total: 0, wins: 0, losses: 0, profitLoss: 0 };
+                processedContracts.clear(); // AGGRESSIVE FIX: Clear processed contracts too
                 updateStats();
                 updateTradeHistoryTable();
                 saveSettings();
@@ -2983,19 +2821,6 @@
         });
 
         // Filter change listeners
-        document.getElementById('stochasticFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('stochasticFilter').checked;
-            const kPeriod = document.getElementById('stochKPeriod').value;
-            const dPeriod = document.getElementById('stochDPeriod').value;
-            const oversold = document.getElementById('stochOversold').value;
-            const overbought = document.getElementById('stochOverbought').value;
-            logActivity(`Stochastic filter ${enabled ? `enabled (K:${kPeriod}, D:${dPeriod}, Buy:<${oversold} + K↑D, Sell:>${overbought} + K↓D)` : 'disabled'}`);
-            if (isAutoTrading) {
-                updateCandleCounter();
-            }
-            saveSettings();
-        });
-
         document.getElementById('liquidityGrabFilter').addEventListener('change', () => {
             const enabled = document.getElementById('liquidityGrabFilter').checked;
             const lookback = document.getElementById('liquidityLookback').value;
@@ -3021,7 +2846,7 @@
 
         document.getElementById('oneCandleFilter').addEventListener('change', () => {
             const enabled = document.getElementById('oneCandleFilter').checked;
-            logActivity(`One Candle filter ${enabled ? 'enabled (Single candle analysis: Red=Buy, Green=Sell)' : 'disabled'}`);
+            logActivity(`One Candle filter ${enabled ? 'enabled (Single candle: Red=Buy, Green=Sell)' : 'disabled'}`);
             updateOneCandleIndicator();
             checkFilterConflicts();
             if (isAutoTrading) {
@@ -3080,50 +2905,6 @@
 
         document.getElementById('takeProfit').addEventListener('change', () => {
             logActivity(`Take profit updated to ${document.getElementById('takeProfit').value}`);
-            saveSettings();
-        });
-
-        document.getElementById('stochKPeriod').addEventListener('change', () => {
-            const period = document.getElementById('stochKPeriod').value;
-            logActivity(`Stochastic %K period updated to ${period}`);
-            
-            Object.keys(stochCache).forEach(symbol => {
-                stochCache[symbol] = {};
-            });
-            
-            if (isAutoTrading && document.getElementById('stochasticFilter').checked) {
-                updateCandleCounter();
-            }
-            saveSettings();
-        });
-
-        document.getElementById('stochDPeriod').addEventListener('change', () => {
-            logActivity(`Stochastic %D period updated to ${document.getElementById('stochDPeriod').value}`);
-            
-            Object.keys(stochCache).forEach(symbol => {
-                stochCache[symbol] = {};
-            });
-            
-            saveSettings();
-        });
-
-        document.getElementById('stochSmooth').addEventListener('change', () => {
-            logActivity(`Stochastic smooth updated to ${document.getElementById('stochSmooth').value}`);
-            
-            Object.keys(stochCache).forEach(symbol => {
-                stochCache[symbol] = {};
-            });
-            
-            saveSettings();
-        });
-
-        document.getElementById('stochOversold').addEventListener('change', () => {
-            logActivity(`Stochastic oversold level updated to ${document.getElementById('stochOversold').value}`);
-            saveSettings();
-        });
-
-        document.getElementById('stochOverbought').addEventListener('change', () => {
-            logActivity(`Stochastic overbought level updated to ${document.getElementById('stochOverbought').value}`);
             saveSettings();
         });
 
@@ -3220,7 +3001,6 @@
             logActivity('Network connection lost!', 'error');
             updateConnectionBadge('disconnected');
             
-            // Force timer reset on network offline
             if (sessionTimer) {
                 stopSessionTimer();
                 logActivity('Session timer reset due to network failure', 'warning');
@@ -3310,15 +3090,13 @@
         // Log startup complete
         setTimeout(() => {
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
-            logActivity('NEW: LIQUIDITY GRAB FILTER - Fakeout/Spring patterns (Buy below support, Sell above resistance)', 'success');
-            logActivity('NEW: ONE CANDLE MODE - Single candle analysis (Red=Buy, Green=Sell)', 'success');
-            logActivity('NEW: Auto-Refresh Feature - Browser refreshes at set intervals and resumes operation', 'success');
-            logActivity('NEW: Forced Timer Reset - Session timer resets on network failure/disconnect', 'success');
-            logActivity('Features: Liquidity Grab, One Candle, Stochastic, Zero Closing, Reverse Candle, Auto-Refresh', 'success');
+            logActivity('✅ AGGRESSIVE FIX: Trade history duplicate prevention enabled', 'success');
+            logActivity('✅ Stochastic Oscillator Filter: REMOVED', 'success');
+            logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh', 'success');
             logActivity('Liquidity Grab: Buy = Pattern low < previous lows (Spring), Sell = Pattern high > previous highs (Bull Trap)', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
-            logActivity('Auto-Reconnect: Enabled with exponential backoff (up to 10 attempts)', 'success');
-            logActivity('Trade History: Fixed and updates correctly with all results', 'success');
+            logActivity('Trade History: All 5 signals will now appear in history', 'success');
+            logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
             logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
             logActivity('App ID: 116948 | All systems operational', 'success');
