@@ -423,6 +423,48 @@
             border-color: #00d4ff;
         }
 
+        .radio-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .radio-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 8px 12px;
+            background: #2a3250;
+            border: 2px solid #3d4663;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .radio-option:hover {
+            border-color: #00d4ff;
+            background: #323d5a;
+        }
+
+        .radio-option input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #00d4ff;
+        }
+
+        .radio-option label {
+            font-size: 13px;
+            color: #e0e0e0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .radio-option input[type="radio"]:checked + label {
+            color: #00d4ff;
+            font-weight: 600;
+        }
+
         .control-buttons {
             display: flex;
             gap: 10px;
@@ -820,6 +862,15 @@
             .history-table td {
                 padding: 8px 5px;
             }
+
+            .radio-group {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .radio-option {
+                width: 100%;
+            }
         }
 
         .timer-display {
@@ -1015,7 +1066,7 @@
                     </div>
                     <div class="input-group">
                         <label class="input-label">Take Profit</label>
-                        <input type="number" class="input-field" id="takeProfit" value="20"min="0" step="1">
+                        <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Liquidity Lookback</label>
@@ -1023,11 +1074,20 @@
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
-                        <select class="select-field" id="durationType">
-                            <option value="t">Ticks</option>
-                            <option value="s">Seconds</option>
-                            <option value="m">Minutes</option>
-                        </select>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" id="durationTypeTicks" name="durationType" value="t" checked>
+                                <label for="durationTypeTicks">Ticks</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" id="durationTypeSeconds" name="durationType" value="s">
+                                <label for="durationTypeSeconds">Seconds</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" id="durationTypeMinutes" name="durationType" value="m">
+                                <label for="durationTypeMinutes">Minutes</label>
+                            </div>
+                        </div>
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Value</label>
@@ -1437,6 +1497,25 @@
             }
         }
 
+        // Get duration type value from radio buttons
+        function getDurationType() {
+            const radios = document.getElementsByName('durationType');
+            for (let radio of radios) {
+                if (radio.checked) {
+                    return radio.value;
+                }
+            }
+            return 't'; // default to ticks
+        }
+
+        // Set duration type radio button
+        function setDurationType(value) {
+            const radios = document.getElementsByName('durationType');
+            for (let radio of radios) {
+                radio.checked = (radio.value === value);
+            }
+        }
+
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
@@ -1506,7 +1585,7 @@
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
             if (savedLiquidityLookback) document.getElementById('liquidityLookback').value = savedLiquidityLookback;
-            if (savedDurationType) document.getElementById('durationType').value = savedDurationType;
+            if (savedDurationType) setDurationType(savedDurationType);
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
             if (savedMinUpperWickSell) document.getElementById('minUpperWickSell').value = savedMinUpperWickSell;
@@ -1556,7 +1635,7 @@
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
                 sessionStorage.setItem('liquidityLookback', document.getElementById('liquidityLookback').value);
-                sessionStorage.setItem('durationType', document.getElementById('durationType').value);
+                sessionStorage.setItem('durationType', getDurationType());
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
                 sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
@@ -2549,7 +2628,7 @@
             }
 
             const stake = parseFloat(document.getElementById('stakeAmount').value);
-            const durationType = document.getElementById('durationType').value;
+            const durationType = getDurationType();
             const durationValue = parseInt(document.getElementById('durationValue').value);
 
             const reqId = ++requestIdCounter;
@@ -2932,6 +3011,15 @@
             }
         });
 
+        // Duration type radio button listeners
+        document.getElementsByName('durationType').forEach(radio => {
+            radio.addEventListener('change', () => {
+                const typeLabels = { 't': 'Ticks', 's': 'Seconds', 'm': 'Minutes' };
+                logActivity(`Duration type updated to ${typeLabels[radio.value]}`);
+                saveSettings();
+            });
+        });
+
         // Settings change listeners
         document.getElementById('stakeAmount').addEventListener('change', () => {
             logActivity(`Stake amount updated to ${document.getElementById('stakeAmount').value}`);
@@ -2953,11 +3041,6 @@
             if (isAutoTrading && document.getElementById('liquidityGrabFilter').checked) {
                 updateCandleCounter();
             }
-            saveSettings();
-        });
-
-        document.getElementById('durationType').addEventListener('change', () => {
-            logActivity(`Duration type updated to ${document.getElementById('durationType').value}`);
             saveSettings();
         });
 
@@ -3145,7 +3228,7 @@
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
             logActivity('✅ AGGRESSIVE FIX: Trade history duplicate prevention enabled', 'success');
             logActivity('✅ FLOATING BROWSER FIX: Race condition prevention enabled', 'success');
-            logActivity('✅ Stochastic Oscillator Filter: REMOVED', 'success');
+            logActivity('✅ Duration Type: Changed from dropdown to radio buttons', 'success');
             logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh', 'success');
             logActivity('Liquidity Grab: Buy = Pattern low < previous lows (Spring), Sell = Pattern high > previous highs (Bull Trap)', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
