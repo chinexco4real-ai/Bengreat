@@ -163,6 +163,20 @@
             box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
         }
 
+        .btn-danger.confirm-state {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            animation: pulse-warning 1s infinite;
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% {
+                box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+            }
+            50% {
+                box-shadow: 0 0 20px rgba(231, 76, 60, 0.8);
+            }
+        }
+
         .btn-success {
             background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
             color: white;
@@ -1263,6 +1277,10 @@
         let refreshCountdownTimer = null;
         let nextRefreshTime = null;
 
+        // Clear history double-tap state
+        let clearHistoryConfirmState = false;
+        let clearHistoryTimeout = null;
+
         // Initialize markets
         Object.keys(markets).forEach(symbol => {
             activeMarkets[symbol] = true;
@@ -1513,6 +1531,18 @@
             const radios = document.getElementsByName('durationType');
             for (let radio of radios) {
                 radio.checked = (radio.value === value);
+            }
+        }
+
+        // Reset clear history button state
+        function resetClearHistoryButton() {
+            const btn = document.getElementById('clearHistoryBtn');
+            btn.textContent = 'Clear History';
+            btn.classList.remove('confirm-state');
+            clearHistoryConfirmState = false;
+            if (clearHistoryTimeout) {
+                clearTimeout(clearHistoryTimeout);
+                clearHistoryTimeout = null;
             }
         }
 
@@ -2821,6 +2851,7 @@
             logActivity(`Waiting for ${requiredCandles} candle(s) before analyzing`, 'info');
             logActivity('✅ Trade history tracking: AGGRESSIVE MODE ENABLED', 'success');
             logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
+            logActivity('✅ Double-tap clear history: ENABLED', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
@@ -2926,16 +2957,35 @@
             }
         });
 
-        // Clear history button
+        // Clear history button with double-tap confirmation
         document.getElementById('clearHistoryBtn').addEventListener('click', () => {
-            if (confirm('Are you sure you want to clear trade history?')) {
+            const btn = document.getElementById('clearHistoryBtn');
+            
+            if (!clearHistoryConfirmState) {
+                // First click - enter confirmation state
+                clearHistoryConfirmState = true;
+                btn.textContent = 'Are you sure?';
+                btn.classList.add('confirm-state');
+                logActivity('Click again to confirm clearing trade history', 'warning');
+                
+                // Reset after 3 seconds if no second click
+                clearHistoryTimeout = setTimeout(() => {
+                    resetClearHistoryButton();
+                    logActivity('Clear history cancelled', 'info');
+                }, 3000);
+            } else {
+                // Second click - perform the clear
+                clearTimeout(clearHistoryTimeout);
+                
                 tradeHistory = [];
                 tradeStats = { total: 0, wins: 0, losses: 0, profitLoss: 0 };
-                processedContracts.clear(); // AGGRESSIVE FIX: Clear processed contracts too
+                processedContracts.clear();
                 updateStats();
                 updateTradeHistoryTable();
                 saveSettings();
-                logActivity('Trade history cleared', 'success');
+                
+                logActivity('Trade history cleared successfully', 'success');
+                resetClearHistoryButton();
             }
         });
 
@@ -3229,6 +3279,7 @@
             logActivity('✅ AGGRESSIVE FIX: Trade history duplicate prevention enabled', 'success');
             logActivity('✅ FLOATING BROWSER FIX: Race condition prevention enabled', 'success');
             logActivity('✅ Duration Type: Changed from dropdown to radio buttons', 'success');
+            logActivity('✅ Clear History: Double-tap button implemented', 'success');
             logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh', 'success');
             logActivity('Liquidity Grab: Buy = Pattern low < previous lows (Spring), Sell = Pattern high > previous highs (Bull Trap)', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
