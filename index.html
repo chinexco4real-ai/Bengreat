@@ -103,6 +103,21 @@
             padding-right: 150px;
         }
 
+        .cooldown-indicator {
+            text-align: center;
+            font-size: 12px;
+            color: #f39c12;
+            margin-top: 10px;
+            padding: 8px;
+            background: rgba(243, 156, 18, 0.1);
+            border-radius: 5px;
+            border: 1px solid #f39c12;
+        }
+
+        .cooldown-indicator.hidden {
+            display: none;
+        }
+
         .login-section {
             display: flex;
             flex-direction: column;
@@ -421,48 +436,6 @@
         .select-field:focus {
             outline: none;
             border-color: #00d4ff;
-        }
-
-        .radio-group {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-        }
-
-        .radio-option {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            padding: 8px 12px;
-            background: #2a3250;
-            border: 2px solid #3d4663;
-            border-radius: 5px;
-            transition: all 0.3s ease;
-        }
-
-        .radio-option:hover {
-            border-color: #00d4ff;
-            background: #323d5a;
-        }
-
-        .radio-option input[type="radio"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-            accent-color: #00d4ff;
-        }
-
-        .radio-option label {
-            font-size: 13px;
-            color: #e0e0e0;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        .radio-option input[type="radio"]:checked + label {
-            color: #00d4ff;
-            font-weight: 600;
         }
 
         .control-buttons {
@@ -862,15 +835,6 @@
             .history-table td {
                 padding: 8px 5px;
             }
-
-            .radio-group {
-                flex-direction: column;
-                gap: 10px;
-            }
-
-            .radio-option {
-                width: 100%;
-            }
         }
 
         .timer-display {
@@ -972,6 +936,11 @@
                 <div class="timer-value" id="timerValue">00:00:00</div>
             </div>
             
+            <!-- COOLDOWN INDICATOR -->
+            <div class="cooldown-indicator hidden" id="cooldownIndicator">
+                🛡️ Trade Cooldown Active: <span id="cooldownTimer">0</span>s (Browser event protection)
+            </div>
+            
             <div class="refresh-indicator hidden" id="refreshIndicator">
                 Next refresh in: <span id="refreshTimer">--:--:--</span>
             </div>
@@ -1039,7 +1008,7 @@
                     </div>
                     <div class="filter-item">
                         <span class="filter-label">Auto Refresh Browser</span>
-                        <label class="toggle-switch">
+                       <label class="toggle-switch">
                             <input type="checkbox" id="autoRefreshFilter">
                             <span class="slider"></span>
                         </label>
@@ -1074,20 +1043,11 @@
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
-                        <div class="radio-group">
-                            <div class="radio-option">
-                                <input type="radio" id="durationTypeTicks" name="durationType" value="t" checked>
-                                <label for="durationTypeTicks">Ticks</label>
-                            </div>
-                            <div class="radio-option">
-                                <input type="radio" id="durationTypeSeconds" name="durationType" value="s">
-                                <label for="durationTypeSeconds">Seconds</label>
-                            </div>
-                            <div class="radio-option">
-                                <input type="radio" id="durationTypeMinutes" name="durationType" value="m">
-                                <label for="durationTypeMinutes">Minutes</label>
-                            </div>
-                        </div>
+                        <select class="select-field" id="durationType">
+                            <option value="t">Ticks</option>
+                            <option value="s">Seconds</option>
+                            <option value="m">Minutes</option>
+                        </select>
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Value</label>
@@ -1120,6 +1080,10 @@
                     <div class="input-group">
                         <label class="input-label">Auto Refresh (Hours)</label>
                         <input type="number" class="input-field" id="refreshInterval" value="1" min="0.1" max="24" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Cooldown (Seconds)</label>
+                        <input type="number" class="input-field" id="tradeCooldown" value="5" min="0" max="60" step="1">
                     </div>
                 </div>
 
@@ -1248,9 +1212,14 @@
         let isPageVisible = true;
         let lastVisibilityChange = Date.now();
         
-        // Candle processing throttle - FLOATING BROWSER FIX
+        // Candle processing throttle
         let lastCandleProcessTime = {};
         let isProcessingTicks = false;
+
+        // ⭐ ULTIMATE FIX: Trade cooldown mechanism
+        let tradeCooldownActive = false;
+        let tradeCooldownEndTime = 0;
+        let cooldownTimerInterval = null;
 
         // Auto-reconnect variables
         let reconnectAttempts = 0;
@@ -1271,6 +1240,55 @@
             currentMinute[symbol] = undefined;
             tradedCandles[symbol] = new Set();
         });
+
+        // ⭐ ULTIMATE FIX: Activate trade cooldown
+        function activateTradeCooldown(reason) {
+            const cooldownSeconds = parseInt(document.getElementById('tradeCooldown').value);
+            
+            if (cooldownSeconds === 0) {
+                return; // Cooldown disabled
+            }
+            
+            tradeCooldownActive = true;
+            tradeCooldownEndTime = Date.now() + (cooldownSeconds * 1000);
+            
+            document.getElementById('cooldownIndicator').classList.remove('hidden');
+            logActivity(`🛡️ Trade cooldown activated: ${cooldownSeconds}s (${reason})`, 'warning');
+            
+            // Clear any existing cooldown timer
+            if (cooldownTimerInterval) {
+                clearInterval(cooldownTimerInterval);
+            }
+            
+            // Update cooldown display
+            cooldownTimerInterval = setInterval(() => {
+                const remaining = Math.ceil((tradeCooldownEndTime - Date.now()) / 1000);
+                
+                if (remaining <= 0) {
+                    clearInterval(cooldownTimerInterval);
+                    cooldownTimerInterval = null;
+                    tradeCooldownActive = false;
+                    document.getElementById('cooldownIndicator').classList.add('hidden');
+                    logActivity('✅ Trade cooldown ended - Trading resumed', 'success');
+                } else {
+                    document.getElementById('cooldownTimer').textContent = remaining;
+                }
+            }, 100);
+        }
+
+        // ⭐ ULTIMATE FIX: Check if trading is allowed
+        function isTradingAllowed() {
+            if (tradeCooldownActive) {
+                const remaining = Math.ceil((tradeCooldownEndTime - Date.now()) / 1000);
+                if (remaining > 0) {
+                    logActivity(`⚠️ Trade blocked - Cooldown active (${remaining}s remaining)`, 'warning');
+                    return false;
+                }
+                tradeCooldownActive = false;
+                document.getElementById('cooldownIndicator').classList.add('hidden');
+            }
+            return true;
+        }
 
         // Update connection badge
         function updateConnectionBadge(status) {
@@ -1497,25 +1515,6 @@
             }
         }
 
-        // Get duration type value from radio buttons
-        function getDurationType() {
-            const radios = document.getElementsByName('durationType');
-            for (let radio of radios) {
-                if (radio.checked) {
-                    return radio.value;
-                }
-            }
-            return 't'; // default to ticks
-        }
-
-        // Set duration type radio button
-        function setDurationType(value) {
-            const radios = document.getElementsByName('durationType');
-            for (let radio of radios) {
-                radio.checked = (radio.value === value);
-            }
-        }
-
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
@@ -1540,6 +1539,7 @@
             const savedMatchingDiffBuy = sessionStorage.getItem('matchingDiffBuy');
             const savedMatchingDiffSell = sessionStorage.getItem('matchingDiffSell');
             const savedRefreshInterval = sessionStorage.getItem('refreshInterval');
+            const savedTradeCooldown = sessionStorage.getItem('tradeCooldown');
             const savedTradeHistory = sessionStorage.getItem('tradeHistory');
             const savedStats = sessionStorage.getItem('tradeStats');
 
@@ -1585,7 +1585,7 @@
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
             if (savedLiquidityLookback) document.getElementById('liquidityLookback').value = savedLiquidityLookback;
-            if (savedDurationType) setDurationType(savedDurationType);
+            if (savedDurationType) document.getElementById('durationType').value = savedDurationType;
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
             if (savedMinUpperWickSell) document.getElementById('minUpperWickSell').value = savedMinUpperWickSell;
@@ -1594,6 +1594,7 @@
             if (savedMatchingDiffBuy) document.getElementById('matchingDiffBuy').value = savedMatchingDiffBuy;
             if (savedMatchingDiffSell) document.getElementById('matchingDiffSell').value = savedMatchingDiffSell;
             if (savedRefreshInterval) document.getElementById('refreshInterval').value = savedRefreshInterval;
+            if (savedTradeCooldown) document.getElementById('tradeCooldown').value = savedTradeCooldown;
 
             if (savedTradeHistory) {
                 try {
@@ -1635,7 +1636,7 @@
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
                 sessionStorage.setItem('liquidityLookback', document.getElementById('liquidityLookback').value);
-                sessionStorage.setItem('durationType', getDurationType());
+                sessionStorage.setItem('durationType', document.getElementById('durationType').value);
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
                 sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
@@ -1644,6 +1645,7 @@
                 sessionStorage.setItem('matchingDiffBuy', document.getElementById('matchingDiffBuy').value);
                 sessionStorage.setItem('matchingDiffSell', document.getElementById('matchingDiffSell').value);
                 sessionStorage.setItem('refreshInterval', document.getElementById('refreshInterval').value);
+                sessionStorage.setItem('tradeCooldown', document.getElementById('tradeCooldown').value);
                 sessionStorage.setItem('tradeHistory', JSON.stringify(tradeHistory));
                 sessionStorage.setItem('tradeStats', JSON.stringify(tradeStats));
                 sessionStorage.setItem('wasAutoTrading', isAutoTrading);
@@ -1704,14 +1706,13 @@
             }
         }
 
-        // Function to safely close a candle - FLOATING BROWSER FIX
+        // Function to safely close a candle
         function finalizeCandle(symbol, closeTime, closePrice) {
             if (!currentOHLC[symbol]) return;
             
             // FLOATING BROWSER FIX: Prevent rapid candle finalization
             const now = Date.now();
             if (lastCandleProcessTime[symbol] && (now - lastCandleProcessTime[symbol]) < 500) {
-                // Prevent candles from being finalized within 500ms of each other
                 console.log(`[THROTTLE] Skipping rapid candle finalization for ${symbol}`);
                 return;
             }
@@ -1901,7 +1902,7 @@
                 
                 // FLOATING BROWSER FIX: Prevent tick processing race conditions
                 if (isProcessingTicks) {
-                    return; // Skip if already processing another tick
+                    return;
                 }
                 isProcessingTicks = true;
 
@@ -1941,7 +1942,6 @@
                     logActivity(`${markets[symbol]} subscribed successfully`, 'success');
                 }
                 
-                // FLOATING BROWSER FIX: Release tick processing lock
                 isProcessingTicks = false;
             }
 
@@ -1964,7 +1964,6 @@
                         pendingTrades.set(data.buy.contract_id, tradeInfo);
                     }
                     
-                    // AGGRESSIVE FIX: Subscribe to contract immediately
                     ws.send(JSON.stringify({
                         proposal_open_contract: 1,
                         contract_id: data.buy.contract_id,
@@ -1990,32 +1989,27 @@
             }
         }
 
-        // AGGRESSIVE FIX: Handle trade result with proper duplicate prevention
+        // Handle trade result with proper duplicate prevention
         function handleTradeResult(contract) {
-            // Only process finalized contracts
             if (!['won', 'lost', 'sold'].includes(contract.status)) {
                 return;
             }
             
-            // AGGRESSIVE FIX: Check if we've already processed this contract ID
             if (processedContracts.has(contract.contract_id)) {
                 console.log(`[DUPLICATE PREVENTED] Contract ${contract.contract_id} already processed`);
                 return;
             }
 
-            // AGGRESSIVE FIX: Mark this contract as processed immediately
             processedContracts.add(contract.contract_id);
 
             const profit = parseFloat(contract.profit || 0);
             const isWin = profit > 0;
 
-            // Update statistics
             tradeStats.total++;
             if (isWin) tradeStats.wins++;
             else tradeStats.losses++;
             tradeStats.profitLoss += profit;
 
-            // Create trade record
             const trade = {
                 id: contract.contract_id,
                 time: new Date().toLocaleTimeString(),
@@ -2027,31 +2021,24 @@
                 isWin: isWin
             };
 
-            // AGGRESSIVE FIX: Initialize tradeHistory if it's not an array
             if (!Array.isArray(tradeHistory)) {
                 tradeHistory = [];
                 logActivity('Trade history reinitialized', 'warning');
             }
 
-            // Add to trade history
             tradeHistory.unshift(trade);
             
-            // Keep only last 100 trades
             if (tradeHistory.length > 100) {
                 tradeHistory = tradeHistory.slice(0, 100);
             }
 
-            // AGGRESSIVE FIX: Update UI immediately and force refresh
             updateStats();
             updateTradeHistoryTable();
             
-            // Save to storage
             saveSettings();
 
-            // Log the trade with contract ID for verification
             logActivity(`✅ TRADE RECORDED: ${trade.market} - ${trade.type} - P/L: ${trade.result} (ID: ${contract.contract_id})`, isWin ? 'success' : 'error');
 
-            // Check stop loss and take profit
             const stopLoss = parseFloat(document.getElementById('stopLoss').value);
             const takeProfit = parseFloat(document.getElementById('takeProfit').value);
 
@@ -2065,12 +2052,10 @@
                 stopAutoTrading();
             }
 
-            // Clean up pending trades
             if (pendingTrades.has(contract.contract_id)) {
                 pendingTrades.delete(contract.contract_id);
             }
 
-            // AGGRESSIVE FIX: Clean up processed contracts after 5 minutes to prevent memory leak
             setTimeout(() => {
                 processedContracts.delete(contract.contract_id);
             }, 300000);
@@ -2291,6 +2276,11 @@
 
         // Check for trading signals with all filters
         function checkForSignals(symbol) {
+            // ⭐ ULTIMATE FIX: Check if trading is allowed (cooldown check)
+            if (!isTradingAllowed()) {
+                return;
+            }
+
             const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
             const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
@@ -2628,7 +2618,7 @@
             }
 
             const stake = parseFloat(document.getElementById('stakeAmount').value);
-            const durationType = getDurationType();
+            const durationType = document.getElementById('durationType').value;
             const durationValue = parseInt(document.getElementById('durationValue').value);
 
             const reqId = ++requestIdCounter;
@@ -2681,6 +2671,9 @@
                     tradedCandles[symbol].add(candleKey);
 
                     logActivity(`Trade executed: ${type} on ${markets[symbol]} - Stake: ${stake}`, 'success');
+                    
+                    // ⭐ ULTIMATE FIX: Activate cooldown after trade
+                    activateTradeCooldown('Trade executed');
                 }
             } catch (error) {
                 logActivity(`Trade execution failed: ${error.message}`, 'error');
@@ -2698,11 +2691,10 @@
             plElement.className = 'stat-value ' + (tradeStats.profitLoss >= 0 ? 'profit' : 'loss');
         }
 
-        // AGGRESSIVE FIX: Update trade history table with better handling
+        // Update trade history table
         function updateTradeHistoryTable() {
             const tbody = document.getElementById('historyTableBody');
             
-            // AGGRESSIVE FIX: Validate tradeHistory
             if (!Array.isArray(tradeHistory)) {
                 console.error('tradeHistory is not an array, reinitializing');
                 tradeHistory = [];
@@ -2714,16 +2706,13 @@
                 return;
             }
 
-            // AGGRESSIVE FIX: Clear and rebuild entire table
             tbody.innerHTML = '';
             
             const displayCount = Math.min(tradeHistory.length, 100);
             
-            // AGGRESSIVE FIX: Add each trade with validation
             for (let i = 0; i < displayCount; i++) {
                 const trade = tradeHistory[i];
                 
-                // Skip invalid entries
                 if (!trade || typeof trade !== 'object') {
                     console.warn(`Invalid trade at index ${i}`, trade);
                     continue;
@@ -2741,8 +2730,7 @@
                 tbody.appendChild(row);
             }
             
-            // AGGRESSIVE FIX: Force DOM update
-            tbody.offsetHeight; // Force reflow
+            tbody.offsetHeight;
             
             updateTradeCountDisplay();
             
@@ -2766,7 +2754,6 @@
             
             activation_time = Math.floor(Date.now() / 1000);
             
-            // AGGRESSIVE FIX: Clear processed contracts on new session
             processedContracts.clear();
             
             Object.keys(markets).forEach(symbol => {
@@ -2791,6 +2778,7 @@
             const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
             const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
+            const cooldownSeconds = parseInt(document.getElementById('tradeCooldown').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
@@ -2802,6 +2790,7 @@
             logActivity(`Activation time set: ${new Date(activation_time * 1000).toLocaleTimeString()}`, 'info');
             logActivity(`Mode: ${oneCandleFilter ? 'ONE CANDLE' : 'TWO CANDLE (Tweezers)'}`, 'info');
             logActivity(`Reverse Mode: ${isReverseMode ? 'ON' : 'OFF'}`, isReverseMode ? 'success' : 'info');
+            logActivity(`Trade Cooldown: ${cooldownSeconds}s (protects against rapid trades)`, 'success');
             
             const activeFilters = [];
             if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
@@ -2821,19 +2810,18 @@
             logActivity(`Waiting for ${requiredCandles} candle(s) before analyzing`, 'info');
             logActivity('✅ Trade history tracking: AGGRESSIVE MODE ENABLED', 'success');
             logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
+            logActivity('⭐ ULTIMATE FIX: Trade cooldown protection ACTIVE', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
 
             if (candleWatchdogTimer) clearInterval(candleWatchdogTimer);
             
-            // FLOATING BROWSER FIX: More conservative watchdog with debouncing
             let watchdogLastRun = 0;
             
             candleWatchdogTimer = setInterval(() => {
                 const now = Date.now();
                 
-                // Debounce: Don't run watchdog more than once per second
                 if (now - watchdogLastRun < 1000) {
                     return;
                 }
@@ -2848,14 +2836,13 @@
                     if (!activeMarkets[symbol] || !marketSubscriptions[symbol]) return;
                     if (currentMinute[symbol] === undefined) return;
 
-                    // FLOATING BROWSER FIX: Only force candle closure if significantly behind (>90 seconds)
                     if (currentServerMinute > currentMinute[symbol] + 90) {
                         const lastPrice = currentOHLC[symbol].close;
                         logActivity(`⚠️ Forcing candle closure for ${markets[symbol]} (>90s delay)`, 'warning');
                         finalizeCandle(symbol, currentServerMinute, lastPrice);
                     }
                 });
-            }, 2000); // Reduced frequency from 200ms to 2000ms
+            }, 2000);
 
             saveSettings();
         }
@@ -2887,6 +2874,14 @@
                 clearInterval(candleWatchdogTimer);
                 candleWatchdogTimer = null;
             }
+            
+            // Clear cooldown when stopping
+            if (cooldownTimerInterval) {
+                clearInterval(cooldownTimerInterval);
+                cooldownTimerInterval = null;
+            }
+            tradeCooldownActive = false;
+            document.getElementById('cooldownIndicator').classList.add('hidden');
 
             saveSettings();
         }
@@ -2931,7 +2926,7 @@
             if (confirm('Are you sure you want to clear trade history?')) {
                 tradeHistory = [];
                 tradeStats = { total: 0, wins: 0, losses: 0, profitLoss: 0 };
-                processedContracts.clear(); // AGGRESSIVE FIX: Clear processed contracts too
+                processedContracts.clear();
                 updateStats();
                 updateTradeHistoryTable();
                 saveSettings();
@@ -3011,13 +3006,10 @@
             }
         });
 
-        // Duration type radio button listeners
-        document.getElementsByName('durationType').forEach(radio => {
-            radio.addEventListener('change', () => {
-                const typeLabels = { 't': 'Ticks', 's': 'Seconds', 'm': 'Minutes' };
-                logActivity(`Duration type updated to ${typeLabels[radio.value]}`);
-                saveSettings();
-            });
+        document.getElementById('tradeCooldown').addEventListener('change', () => {
+            const cooldown = document.getElementById('tradeCooldown').value;
+            logActivity(`Trade cooldown updated to ${cooldown} second(s)`, 'info');
+            saveSettings();
         });
 
         // Settings change listeners
@@ -3041,6 +3033,11 @@
             if (isAutoTrading && document.getElementById('liquidityGrabFilter').checked) {
                 updateCandleCounter();
             }
+            saveSettings();
+        });
+
+        document.getElementById('durationType').addEventListener('change', () => {
+            logActivity(`Duration type updated to ${document.getElementById('durationType').value}`);
             saveSettings();
         });
 
@@ -3206,7 +3203,7 @@
         renderMarkets();
         logActivity('System initialized. Please login to continue.', 'success');
         
-        // FLOATING BROWSER FIX: Log visibility changes but don't pause trading
+        // ⭐ ULTIMATE FIX: Monitor visibility changes and activate cooldown
         document.addEventListener('visibilitychange', () => {
             const wasVisible = isPageVisible;
             isPageVisible = !document.hidden;
@@ -3214,6 +3211,11 @@
             
             if (isPageVisible && !wasVisible) {
                 logActivity('🔄 Browser window restored', 'info');
+                
+                // ⭐ ULTIMATE FIX: Activate cooldown when browser is maximized
+                if (isAutoTrading) {
+                    activateTradeCooldown('Browser maximized');
+                }
             } else if (!isPageVisible && wasVisible) {
                 logActivity('⏸️ Browser window minimized (still active)', 'info');
             }
@@ -3228,13 +3230,15 @@
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
             logActivity('✅ AGGRESSIVE FIX: Trade history duplicate prevention enabled', 'success');
             logActivity('✅ FLOATING BROWSER FIX: Race condition prevention enabled', 'success');
-            logActivity('✅ Duration Type: Changed from dropdown to radio buttons', 'success');
+            logActivity('⭐ ULTIMATE FIX: Trade cooldown on browser maximize ENABLED', 'success');
+            logActivity('✅ Stochastic Oscillator Filter: REMOVED', 'success');
             logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh', 'success');
             logActivity('Liquidity Grab: Buy = Pattern low < previous lows (Spring), Sell = Pattern high > previous highs (Bull Trap)', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
             logActivity('Trade History: All signals will now appear in history', 'success');
             logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
             logActivity('Floating Browser: Optimized for always-active browsers', 'success');
+            logActivity('⭐ NEW: Trade Cooldown prevents instant trades on browser maximize', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
             logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
             logActivity('App ID: 116948 | All systems operational', 'success');
