@@ -1015,7 +1015,7 @@
                     </div>
                     <div class="input-group">
                         <label class="input-label">Take Profit</label>
-                        <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
+                        <input type="number" class="input-field" id="takeProfit" value="20"min="0" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Liquidity Lookback</label>
@@ -1177,12 +1177,20 @@
         let tradedCandles = {};
         let requestIdCounter = 0;
         let pendingProposals = new Map();
-        let processedContracts = new Set(); // AGGRESSIVE FIX: Track all processed contracts
+        let processedContracts = new Set();
         
         // Time synchronization variables
         let serverTimeOffset = 0;
         let isTimeSynced = false;
         let candleWatchdogTimer = null;
+        
+        // Browser visibility tracking
+        let isPageVisible = true;
+        let lastVisibilityChange = Date.now();
+        
+        // Candle processing throttle - FLOATING BROWSER FIX
+        let lastCandleProcessTime = {};
+        let isProcessingTicks = false;
 
         // Auto-reconnect variables
         let reconnectAttempts = 0;
@@ -1617,9 +1625,18 @@
             }
         }
 
-        // Function to safely close a candle
+        // Function to safely close a candle - FLOATING BROWSER FIX
         function finalizeCandle(symbol, closeTime, closePrice) {
             if (!currentOHLC[symbol]) return;
+            
+            // FLOATING BROWSER FIX: Prevent rapid candle finalization
+            const now = Date.now();
+            if (lastCandleProcessTime[symbol] && (now - lastCandleProcessTime[symbol]) < 500) {
+                // Prevent candles from being finalized within 500ms of each other
+                console.log(`[THROTTLE] Skipping rapid candle finalization for ${symbol}`);
+                return;
+            }
+            lastCandleProcessTime[symbol] = now;
 
             const completedCandle = {
                 time: currentMinute[symbol],
@@ -1802,6 +1819,12 @@
             if (data.msg_type === 'tick' && data.tick) {
                 const symbol = data.tick.symbol;
                 if (!activeMarkets[symbol]) return;
+                
+                // FLOATING BROWSER FIX: Prevent tick processing race conditions
+                if (isProcessingTicks) {
+                    return; // Skip if already processing another tick
+                }
+                isProcessingTicks = true;
 
                 const epoch = data.tick.epoch;
                 const quote = parseFloat(data.tick.quote);
@@ -1838,6 +1861,9 @@
                     updateSubscriptionIndicator(symbol, 'subscribed');
                     logActivity(`${markets[symbol]} subscribed successfully`, 'success');
                 }
+                
+                // FLOATING BROWSER FIX: Release tick processing lock
+                isProcessingTicks = false;
             }
 
             if (data.msg_type === 'proposal' && data.proposal) {
@@ -2715,13 +2741,25 @@
             
             logActivity(`Waiting for ${requiredCandles} candle(s) before analyzing`, 'info');
             logActivity('✅ Trade history tracking: AGGRESSIVE MODE ENABLED', 'success');
+            logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
 
             if (candleWatchdogTimer) clearInterval(candleWatchdogTimer);
             
+            // FLOATING BROWSER FIX: More conservative watchdog with debouncing
+            let watchdogLastRun = 0;
+            
             candleWatchdogTimer = setInterval(() => {
+                const now = Date.now();
+                
+                // Debounce: Don't run watchdog more than once per second
+                if (now - watchdogLastRun < 1000) {
+                    return;
+                }
+                watchdogLastRun = now;
+                
                 if (!isTimeSynced) return;
                 
                 const estimatedServerTime = Date.now() - serverTimeOffset;
@@ -2731,12 +2769,14 @@
                     if (!activeMarkets[symbol] || !marketSubscriptions[symbol]) return;
                     if (currentMinute[symbol] === undefined) return;
 
-                    if (currentServerMinute > currentMinute[symbol]) {
+                    // FLOATING BROWSER FIX: Only force candle closure if significantly behind (>90 seconds)
+                    if (currentServerMinute > currentMinute[symbol] + 90) {
                         const lastPrice = currentOHLC[symbol].close;
+                        logActivity(`⚠️ Forcing candle closure for ${markets[symbol]} (>90s delay)`, 'warning');
                         finalizeCandle(symbol, currentServerMinute, lastPrice);
                     }
                 });
-            }, 200);
+            }, 2000); // Reduced frequency from 200ms to 2000ms
 
             saveSettings();
         }
@@ -3082,6 +3122,19 @@
         loadSettings();
         renderMarkets();
         logActivity('System initialized. Please login to continue.', 'success');
+        
+        // FLOATING BROWSER FIX: Log visibility changes but don't pause trading
+        document.addEventListener('visibilitychange', () => {
+            const wasVisible = isPageVisible;
+            isPageVisible = !document.hidden;
+            lastVisibilityChange = Date.now();
+            
+            if (isPageVisible && !wasVisible) {
+                logActivity('🔄 Browser window restored', 'info');
+            } else if (!isPageVisible && wasVisible) {
+                logActivity('⏸️ Browser window minimized (still active)', 'info');
+            }
+        });
 
         // Log system information
         logActivity(`Browser: ${navigator.userAgent}`, 'info');
@@ -3091,12 +3144,14 @@
         setTimeout(() => {
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
             logActivity('✅ AGGRESSIVE FIX: Trade history duplicate prevention enabled', 'success');
+            logActivity('✅ FLOATING BROWSER FIX: Race condition prevention enabled', 'success');
             logActivity('✅ Stochastic Oscillator Filter: REMOVED', 'success');
             logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh', 'success');
             logActivity('Liquidity Grab: Buy = Pattern low < previous lows (Spring), Sell = Pattern high > previous highs (Bull Trap)', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
-            logActivity('Trade History: All 5 signals will now appear in history', 'success');
+            logActivity('Trade History: All signals will now appear in history', 'success');
             logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
+            logActivity('Floating Browser: Optimized for always-active browsers', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
             logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
             logActivity('App ID: 116948 | All systems operational', 'success');
