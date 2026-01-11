@@ -1041,9 +1041,16 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">Liquidity Grab (Fakeout/Spring)</span>
+                        <span class="filter-label">False Breakout Filter</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="liquidityGrabFilter">
+                            <input type="checkbox" id="falseBreakoutFilter">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Parabolic SAR Filter</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="parabolicSARFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -1107,8 +1114,16 @@
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">Liquidity Lookback</label>
-                        <input type="number" class="input-field" id="liquidityLookback" value="5" min="3" max="20" step="1">
+                        <label class="input-label">Breakout Lookback</label>
+                        <input type="number" class="input-field" id="breakoutLookback" value="5" min="3" max="20" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">SAR Acceleration</label>
+                        <input type="number" class="input-field" id="sarAcceleration" value="0.02" min="0.01" max="0.1" step="0.01">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">SAR Maximum</label>
+                        <input type="number" class="input-field" id="sarMaximum" value="0.2" min="0.1" max="0.5" step="0.05">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
@@ -1412,14 +1427,14 @@
                 return;
             }
 
-            const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
+            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
+            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (liquidityGrabFilter) {
-                requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
+            if (falseBreakoutFilter) {
+                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
             }
             
             let minCandles = Infinity;
@@ -1622,11 +1637,96 @@
             logActivity('[ALTERNATOR] All markets reset to BUY (CALL) starting position', 'success');
         }
 
+        // Calculate Parabolic SAR
+        function calculateParabolicSAR(candles, acceleration = 0.02, maximum = 0.2) {
+            if (candles.length < 2) return null;
+
+            const sarData = [];
+            let isUptrend = candles[1].close > candles[0].close;
+            let sar = isUptrend ? candles[0].low : candles[0].high;
+            let ep = isUptrend ? candles[0].high : candles[0].low;
+            let af = acceleration;
+
+            for (let i = 1; i < candles.length; i++) {
+                const candle = candles[i];
+                
+                // Calculate new SAR
+                sar = sar + af * (ep - sar);
+                
+                // Check for trend reversal
+                const reversalOccurred = isUptrend ? candle.low < sar : candle.high > sar;
+                
+                if (reversalOccurred) {
+                    // Trend reversal
+                    isUptrend = !isUptrend;
+                    sar = ep;
+                    ep = isUptrend ? candle.high : candle.low;
+                    af = acceleration;
+                } else {
+                    // Continue current trend
+                    if (isUptrend) {
+                        if (candle.high > ep) {
+                            ep = candle.high;
+                            af = Math.min(af + acceleration, maximum);
+                        }
+                        // Ensure SAR is below the lowest of last 2 lows
+                        if (i >= 1) {
+                            const prevLow = Math.min(candles[i - 1].low, candle.low);
+                            if (sar > prevLow) {
+                                sar = prevLow;
+                            }
+                        }
+                    } else {
+                        if (candle.low < ep) {
+                            ep = candle.low;
+                            af = Math.min(af + acceleration, maximum);
+                        }
+                        // Ensure SAR is above the highest of last 2 highs
+                        if (i >= 1) {
+                            const prevHigh = Math.max(candles[i - 1].high, candle.high);
+                            if (sar < prevHigh) {
+                                sar = prevHigh;
+                            }
+                        }
+                    }
+                }
+                
+                sarData.push({
+                    sar: sar,
+                    isUptrend: isUptrend,
+                    ep: ep,
+                    af: af
+                });
+            }
+
+            return sarData;
+        }
+
+        // Check SAR signal
+        function checkSARSignal(candles, acceleration, maximum) {
+            if (candles.length < 3) return { buy: false, sell: false };
+
+            const sarData = calculateParabolicSAR(candles, acceleration, maximum);
+            if (!sarData || sarData.length < 2) return { buy: false, sell: false };
+
+            const currentSAR = sarData[sarData.length - 1];
+            const previousSAR = sarData[sarData.length - 2];
+            
+            // Buy signal: SAR flips from above to below (trend changes to uptrend)
+            const buySignal = !previousSAR.isUptrend && currentSAR.isUptrend;
+            
+            // Sell signal: SAR flips from below to above (trend changes to downtrend)
+            const sellSignal = previousSAR.isUptrend && !currentSAR.isUptrend;
+
+            return { buy: buySignal, sell: sellSignal };
+        }
+
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
-            const savedLiquidityGrabFilter = sessionStorage.getItem('liquidityGrabFilter');
+            const savedFalseBreakoutFilter = sessionStorage.getItem('falseBreakoutFilter');
+            const savedParabolicSARFilter = sessionStorage.getItem('parabolicSARFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedOneCandleFilter = sessionStorage.getItem('oneCandleFilter');
@@ -1638,7 +1738,9 @@
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
-            const savedLiquidityLookback = sessionStorage.getItem('liquidityLookback');
+            const savedBreakoutLookback = sessionStorage.getItem('breakoutLookback');
+            const savedSarAcceleration = sessionStorage.getItem('sarAcceleration');
+            const savedSarMaximum = sessionStorage.getItem('sarMaximum');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
@@ -1659,8 +1761,12 @@
                 activeMarkets = JSON.parse(savedMarkets);
             }
 
-            if (savedLiquidityGrabFilter) {
-                document.getElementById('liquidityGrabFilter').checked = savedLiquidityGrabFilter === 'true';
+            if (savedFalseBreakoutFilter) {
+                document.getElementById('falseBreakoutFilter').checked = savedFalseBreakoutFilter === 'true';
+            }
+
+            if (savedParabolicSARFilter) {
+                document.getElementById('parabolicSARFilter').checked = savedParabolicSARFilter === 'true';
             }
 
             if (savedZeroFilter) {
@@ -1706,7 +1812,9 @@
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
-            if (savedLiquidityLookback) document.getElementById('liquidityLookback').value = savedLiquidityLookback;
+            if (savedBreakoutLookback) document.getElementById('breakoutLookback').value = savedBreakoutLookback;
+            if (savedSarAcceleration) document.getElementById('sarAcceleration').value = savedSarAcceleration;
+            if (savedSarMaximum) document.getElementById('sarMaximum').value = savedSarMaximum;
             if (savedDurationType) setDurationType(savedDurationType);
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
@@ -1746,7 +1854,8 @@
             try {
                 sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
                 sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
-                sessionStorage.setItem('liquidityGrabFilter', document.getElementById('liquidityGrabFilter').checked);
+                sessionStorage.setItem('falseBreakoutFilter', document.getElementById('falseBreakoutFilter').checked);
+                sessionStorage.setItem('parabolicSARFilter', document.getElementById('parabolicSARFilter').checked);
                 sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
                 sessionStorage.setItem('oneCandleFilter', document.getElementById('oneCandleFilter').checked);
@@ -1758,7 +1867,9 @@
                 sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
-                sessionStorage.setItem('liquidityLookback', document.getElementById('liquidityLookback').value);
+                sessionStorage.setItem('breakoutLookback', document.getElementById('breakoutLookback').value);
+                sessionStorage.setItem('sarAcceleration', document.getElementById('sarAcceleration').value);
+                sessionStorage.setItem('sarMaximum', document.getElementById('sarMaximum').value);
                 sessionStorage.setItem('durationType', getDurationType());
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
@@ -1865,14 +1976,14 @@
 
             updateCandleCounter();
             
-            const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
+            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
+            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (liquidityGrabFilter) {
-                requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
+            if (falseBreakoutFilter) {
+                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
             }
             
             if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
@@ -2369,44 +2480,59 @@
             });
         }
 
-        // Check for Liquidity Grab - TWEEZERS BOTTOM (Buy Signal)
-        function isLiquidityGrabBottom(data, lookback) {
+        // Check for False Breakout Bottom - BULLISH REVERSAL
+        function isFalseBreakoutBottom(data, lookback) {
             if (data.length < lookback + 2) return false;
 
             const patternCandles = data.slice(-2);
             const patternLow = Math.min(patternCandles[0].low, patternCandles[1].low);
+            const secondCandleClose = patternCandles[1].close;
 
             const previousCandles = data.slice(-(lookback + 2), -2);
             
             const lowestPreviousLow = Math.min(...previousCandles.map(c => c.low));
 
-            return patternLow < lowestPreviousLow;
+            // Break: Pattern low is lower than previous lows
+            const breakOccurred = patternLow < lowestPreviousLow;
+            
+            // Rejection: Second candle closes above its low (showing rejection)
+            const rejectionOccurred = secondCandleClose > (patternCandles[1].low * 1.001);
+
+            return breakOccurred && rejectionOccurred;
         }
 
-        // Check for Liquidity Grab - TWEEZERS TOP (Sell Signal)
-        function isLiquidityGrabTop(data, lookback) {
+        // Check for False Breakout Top - BEARISH REVERSAL
+        function isFalseBreakoutTop(data, lookback) {
             if (data.length < lookback + 2) return false;
 
             const patternCandles = data.slice(-2);
             const patternHigh = Math.max(patternCandles[0].high, patternCandles[1].high);
+            const secondCandleClose = patternCandles[1].close;
 
             const previousCandles = data.slice(-(lookback + 2), -2);
             
             const highestPreviousHigh = Math.max(...previousCandles.map(c => c.high));
 
-            return patternHigh > highestPreviousHigh;
+            // Break: Pattern high is higher than previous highs
+            const breakOccurred = patternHigh > highestPreviousHigh;
+            
+            // Rejection: Second candle closes below its high (showing rejection)
+            const rejectionOccurred = secondCandleClose < (patternCandles[1].high * 0.999);
+
+            return breakOccurred && rejectionOccurred;
         }
 
-        // Check for trading signals with all filters + ALTERNATOR MODE
+        // Check for trading signals with all filters + ALTERNATOR MODE + FALSE BREAKOUT + PARABOLIC SAR
         function checkForSignals(symbol) {
-            const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
+            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
+            const parabolicSARFilter = document.getElementById('parabolicSARFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
+            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (liquidityGrabFilter) {
-                requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
+            if (falseBreakoutFilter) {
+                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
             }
             
             if (candleData[symbol].length < requiredCandles) return;
@@ -2434,7 +2560,15 @@
             const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value) / 100;
             const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value) / 100;
 
-            let isLiquidityGrab = null;
+            let isFalseBreakout = null;
+            let sarSignal = { buy: false, sell: false };
+
+            // Check Parabolic SAR if enabled
+            if (parabolicSARFilter && candles.length >= 3) {
+                const sarAcceleration = parseFloat(document.getElementById('sarAcceleration').value);
+                const sarMaximum = parseFloat(document.getElementById('sarMaximum').value);
+                sarSignal = checkSARSignal(candles, sarAcceleration, sarMaximum);
+            }
 
             // ONE CANDLE MODE
             if (oneCandleFilter) {
@@ -2444,8 +2578,27 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
+                    // False Breakout Filter
+                    if (falseBreakoutFilter) {
+                        isFalseBreakout = isFalseBreakoutBottom(candles, breakoutLookback);
+                        if (!isFalseBreakout) {
+                            shouldTrade = false;
+                        } else {
+                            filterInfo.push(`False Breakout: Rejection below previous ${breakoutLookback}-candle support`);
+                        }
+                    }
+
+                    // Parabolic SAR Filter
+                    if (shouldTrade && parabolicSARFilter) {
+                        if (!sarSignal.buy) {
+                            shouldTrade = false;
+                        } else {
+                            filterInfo.push('SAR: Bullish reversal confirmed');
+                        }
+                    }
+
                     // ALTERNATOR MODE: Aggressive enforcement
-                    if (isAlternatorMode) {
+                    if (shouldTrade && isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
@@ -2469,8 +2622,27 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
+                    // False Breakout Filter
+                    if (falseBreakoutFilter) {
+                        isFalseBreakout = isFalseBreakoutTop(candles, breakoutLookback);
+                        if (!isFalseBreakout) {
+                            shouldTrade = false;
+                        } else {
+                            filterInfo.push(`False Breakout: Rejection above previous ${breakoutLookback}-candle resistance`);
+                        }
+                    }
+
+                    // Parabolic SAR Filter
+                    if (shouldTrade && parabolicSARFilter) {
+                        if (!sarSignal.sell) {
+                            shouldTrade = false;
+                        } else {
+                            filterInfo.push('SAR: Bearish reversal confirmed');
+                        }
+                    }
+
                     // ALTERNATOR MODE: Aggressive enforcement
-                    if (isAlternatorMode) {
+                    if (shouldTrade && isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
@@ -2501,12 +2673,22 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
-                    if (liquidityGrabFilter) {
-                        isLiquidityGrab = isLiquidityGrabBottom(candles, liquidityLookback);
-                        if (!isLiquidityGrab) {
+                    // False Breakout Filter
+                    if (falseBreakoutFilter) {
+                        isFalseBreakout = isFalseBreakoutBottom(candles, breakoutLookback);
+                        if (!isFalseBreakout) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`Liquidity Grab: Fakeout below previous ${liquidityLookback}-candle support (Spring pattern)`);
+                            filterInfo.push(`False Breakout: Rejection below previous ${breakoutLookback}-candle support`);
+                        }
+                    }
+
+                    // Parabolic SAR Filter
+                    if (shouldTrade && parabolicSARFilter) {
+                        if (!sarSignal.buy) {
+                            shouldTrade = false;
+                        } else {
+                            filterInfo.push('SAR: Bullish reversal confirmed');
                         }
                     }
 
@@ -2535,12 +2717,22 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
-                    if (liquidityGrabFilter) {
-                        isLiquidityGrab = isLiquidityGrabTop(candles, liquidityLookback);
-                        if (!isLiquidityGrab) {
+                    // False Breakout Filter
+                    if (falseBreakoutFilter) {
+                        isFalseBreakout = isFalseBreakoutTop(candles, breakoutLookback);
+                        if (!isFalseBreakout) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`Liquidity Grab: Breakout above previous ${liquidityLookback}-candle resistance (Bull Trap)`);
+                            filterInfo.push(`False Breakout: Rejection above previous ${breakoutLookback}-candle resistance`);
+                        }
+                    }
+
+                    // Parabolic SAR Filter
+                    if (shouldTrade && parabolicSARFilter) {
+                        if (!sarSignal.sell) {
+                            shouldTrade = false;
+                        } else {
+                            filterInfo.push('SAR: Bearish reversal confirmed');
                         }
                     }
 
@@ -2941,14 +3133,15 @@
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
+            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
+            const parabolicSARFilter = document.getElementById('parabolicSARFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const liquidityLookback = parseInt(document.getElementById('liquidityLookback').value);
+            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (liquidityGrabFilter) {
-                requiredCandles = Math.max(requiredCandles, liquidityLookback + 2);
+            if (falseBreakoutFilter) {
+                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
             }
             
             logActivity('Auto trading started', 'success');
@@ -2959,9 +3152,10 @@
             
             const activeFilters = [];
             if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
-            if (liquidityGrabFilter) {
-                activeFilters.push(`Liquidity Grab (${liquidityLookback} candles) - Buy: Fakeout below support, Sell: Bull trap above resistance`);
+            if (falseBreakoutFilter) {
+                activeFilters.push(`False Breakout (${breakoutLookback} candles) - Buy: Rejection below support, Sell: Rejection above resistance`);
             }
+            if (parabolicSARFilter) activeFilters.push('Parabolic SAR - Buy: SAR flips below, Sell: SAR flips above');
             if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
             if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
             if (document.getElementById('reverseCandleFilter').checked) activeFilters.push('Reverse Candle');
@@ -2977,6 +3171,8 @@
             logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
             logActivity('✅ Double-tap clear history: ENABLED', 'success');
             logActivity('✅ Alternator Mode: Per-market enforcement ACTIVE', 'success');
+            logActivity('✅ False Breakout Filter: Pattern-based reversal detection ENABLED', 'success');
+            logActivity('✅ Parabolic SAR Filter: Trend reversal confirmation ENABLED', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
@@ -3141,13 +3337,21 @@
         });
 
         // Filter change listeners
-        document.getElementById('liquidityGrabFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('liquidityGrabFilter').checked;
-            const lookback = document.getElementById('liquidityLookback').value;
-            logActivity(`Liquidity Grab filter ${enabled ? `enabled (${lookback} candles, Buy: Fakeout below support, Sell: Bull trap above resistance)` : 'disabled'}`);
+        document.getElementById('falseBreakoutFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('falseBreakoutFilter').checked;
+            const lookback = document.getElementById('breakoutLookback').value;
+            logActivity(`False Breakout filter ${enabled ? `enabled (${lookback} candles, Buy: Rejection below support, Sell: Rejection above resistance)` : 'disabled'}`);
             if (isAutoTrading) {
                 updateCandleCounter();
             }
+            saveSettings();
+        });
+
+        document.getElementById('parabolicSARFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('parabolicSARFilter').checked;
+            const accel = document.getElementById('sarAcceleration').value;
+            const max = document.getElementById('sarMaximum').value;
+            logActivity(`Parabolic SAR filter ${enabled ? `enabled (Accel: ${accel}, Max: ${max})` : 'disabled'}`);
             saveSettings();
         });
 
@@ -3221,7 +3425,7 @@
             });
         });
     
-         // Settings change listeners
+        // Settings change listeners
         document.getElementById('stakeAmount').addEventListener('change', () => {
             logActivity(`Stake amount updated to ${document.getElementById('stakeAmount').value}`);
             saveSettings();
@@ -3237,11 +3441,21 @@
             saveSettings();
         });
 
-        document.getElementById('liquidityLookback').addEventListener('change', () => {
-            logActivity(`Liquidity lookback updated to ${document.getElementById('liquidityLookback').value} candles`);
-            if (isAutoTrading && document.getElementById('liquidityGrabFilter').checked) {
+        document.getElementById('breakoutLookback').addEventListener('change', () => {
+            logActivity(`Breakout lookback updated to ${document.getElementById('breakoutLookback').value} candles`);
+            if (isAutoTrading && document.getElementById('falseBreakoutFilter').checked) {
                 updateCandleCounter();
             }
+            saveSettings();
+        });
+
+        document.getElementById('sarAcceleration').addEventListener('change', () => {
+            logActivity(`SAR acceleration updated to ${document.getElementById('sarAcceleration').value}`);
+            saveSettings();
+        });
+
+        document.getElementById('sarMaximum').addEventListener('change', () => {
+            logActivity(`SAR maximum updated to ${document.getElementById('sarMaximum').value}`);
             saveSettings();
         });
 
@@ -3429,11 +3643,14 @@
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
             logActivity('✅ AGGRESSIVE FIX: Trade history duplicate prevention enabled', 'success');
             logActivity('✅ FLOATING BROWSER FIX: Race condition prevention enabled', 'success');
-            logActivity('✅ Duration Type: Changed from dropdown to radio buttons', 'success');
+            logActivity('✅ Duration Type: Radio buttons implemented', 'success');
             logActivity('✅ Clear History: Double-tap button implemented', 'success');
             logActivity('✅ ALTERNATOR MODE: Per-market BUY-SELL-BUY enforcement ENABLED', 'success');
-            logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
-            logActivity('Liquidity Grab: Buy = Pattern low < previous lows (Spring), Sell = Pattern high > previous highs (Bull Trap)', 'success');
+            logActivity('✅ FALSE BREAKOUT FILTER: Pattern-based reversal detection ENABLED', 'success');
+            logActivity('✅ PARABOLIC SAR FILTER: Trend reversal confirmation ENABLED', 'success');
+            logActivity('Features: False Breakout, Parabolic SAR, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
+            logActivity('False Breakout: Buy = Rejection below support, Sell = Rejection above resistance', 'success');
+            logActivity('Parabolic SAR: Buy = SAR flips below price, Sell = SAR flips above price', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
             logActivity('Trade History: All signals will now appear in history', 'success');
             logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
@@ -3446,3 +3663,4 @@
     </script>
 </body>
 </html>
+                                
