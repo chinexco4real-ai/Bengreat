@@ -197,6 +197,16 @@
             box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4);
         }
 
+        .btn-info {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+        }
+
+        .btn-info:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.4);
+        }
+
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -540,6 +550,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
 
         .status-indicator {
@@ -790,6 +802,18 @@
             margin-left: 10px;
         }
 
+        .alternator-mode-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            background: rgba(52, 152, 219, 0.2);
+            border: 1px solid #3498db;
+            border-radius: 4px;
+            color: #3498db;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
         .conflict-alert {
             background: rgba(243, 156, 18, 0.15);
             border: 2px solid #f39c12;
@@ -993,7 +1017,7 @@
 
         <div class="signal-monitor">
             <div class="monitor-header">
-                <h2 class="panel-title">📊 Signal Monitor<span id="reverseModeIndicator" class="reverse-mode-badge hidden">REVERSE MODE</span><span id="oneCandleIndicator" class="one-candle-badge hidden">ONE CANDLE</span></h2>
+                <h2 class="panel-title">📊 Signal Monitor<span id="reverseModeIndicator" class="reverse-mode-badge hidden">REVERSE MODE</span><span id="oneCandleIndicator" class="one-candle-badge hidden">ONE CANDLE</span><span id="alternatorModeIndicator" class="alternator-mode-badge hidden">ALTERNATOR</span></h2>
                 <div class="status-indicator">
                     <div class="pulse-dot" id="statusDot"></div>
                     <span class="status-text" id="statusText">Bot Inactive</span>
@@ -1140,6 +1164,7 @@
                 <div class="control-buttons">
                     <button class="btn btn-success" id="autoTradeBtn" disabled>Start Auto Trade</button>
                     <button class="btn btn-warning" id="reverseModeBtn" disabled>Reverse Mode: OFF</button>
+                    <button class="btn btn-info" id="alternatorModeBtn" disabled>Alternator: OFF</button>
                 </div>
             </div>
         </div>
@@ -1228,6 +1253,7 @@
         let isLoggedIn = false;
         let isAutoTrading = false;
         let isReverseMode = false;
+        let isAlternatorMode = false;
         let activation_time = 0;
         let activeMarkets = {};
         let marketSubscriptions = {};
@@ -1252,6 +1278,9 @@
         let requestIdCounter = 0;
         let pendingProposals = new Map();
         let processedContracts = new Set();
+        
+        // ALTERNATOR MODE: Track next trade type for each market separately
+        let marketAlternatorState = {};
         
         // Time synchronization variables
         let serverTimeOffset = 0;
@@ -1281,13 +1310,14 @@
         let clearHistoryConfirmState = false;
         let clearHistoryTimeout = null;
 
-        // Initialize markets
+        // Initialize markets and alternator state
         Object.keys(markets).forEach(symbol => {
             activeMarkets[symbol] = true;
             candleData[symbol] = [];
             currentOHLC[symbol] = undefined;
             currentMinute[symbol] = undefined;
             tradedCandles[symbol] = new Set();
+            marketAlternatorState[symbol] = 'CALL'; // Start with CALL for each market
         });
 
         // Update connection badge
@@ -1329,6 +1359,16 @@
             }
         }
 
+        // Update alternator mode indicator
+        function updateAlternatorModeIndicator() {
+            const indicator = document.getElementById('alternatorModeIndicator');
+            if (isAlternatorMode) {
+                indicator.classList.remove('hidden');
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
         // Update one candle mode indicator
         function updateOneCandleIndicator() {
             const indicator = document.getElementById('oneCandleIndicator');
@@ -1351,6 +1391,10 @@
             
             if (ignoreHeight && oneCandle) {
                 conflicts.push('• "Ignore Height" and "One Candle" are both enabled. These filters work together:<br>&nbsp;&nbsp;- One Candle: Uses only first candle for analysis (no second candle needed)<br>&nbsp;&nbsp;- Ignore Height: Allows the single candle to be any height<br>&nbsp;&nbsp;→ Both filters will be applied for maximum flexibility');
+            }
+
+            if (isReverseMode && isAlternatorMode) {
+                conflicts.push('• "Reverse Mode" and "Alternator Mode" are both enabled:<br>&nbsp;&nbsp;- Alternator enforces BUY-SELL-BUY pattern per market<br>&nbsp;&nbsp;- Reverse Mode inverts signals<br>&nbsp;&nbsp;→ Combined effect: Alternator operates on reversed signals');
             }
             
             if (conflicts.length > 0) {
@@ -1546,6 +1590,38 @@
             }
         }
 
+        // ALTERNATOR MODE: Get next trade type for a specific market
+        function getNextAlternatorTradeType(symbol) {
+            if (!isAlternatorMode) {
+                return null; // Alternator mode disabled
+            }
+            
+            // Return the next expected trade type for this market
+            return marketAlternatorState[symbol];
+        }
+
+        // ALTERNATOR MODE: Update alternator state after trade execution
+        function updateAlternatorState(symbol, executedType) {
+            if (!isAlternatorMode) return;
+            
+            // Flip to opposite trade type for next signal on this market
+            if (executedType === 'CALL') {
+                marketAlternatorState[symbol] = 'PUT';
+                logActivity(`[ALTERNATOR] ${markets[symbol]}: Next trade will be SELL (PUT)`, 'info');
+            } else if (executedType === 'PUT') {
+                marketAlternatorState[symbol] = 'CALL';
+                logActivity(`[ALTERNATOR] ${markets[symbol]}: Next trade will be BUY (CALL)`, 'info');
+            }
+        }
+
+        // ALTERNATOR MODE: Reset all markets to starting state
+        function resetAlternatorStates() {
+            Object.keys(markets).forEach(symbol => {
+                marketAlternatorState[symbol] = 'CALL'; // Reset all to CALL
+            });
+            logActivity('[ALTERNATOR] All markets reset to BUY (CALL) starting position', 'success');
+        }
+
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
@@ -1557,6 +1633,8 @@
             const savedReverseCandleFilter = sessionStorage.getItem('reverseCandleFilter');
             const savedAutoRefreshFilter = sessionStorage.getItem('autoRefreshFilter');
             const savedReverseMode = sessionStorage.getItem('reverseMode');
+            const savedAlternatorMode = sessionStorage.getItem('alternatorMode');
+            const savedAlternatorStates = sessionStorage.getItem('alternatorStates');
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
@@ -1611,6 +1689,20 @@
                 updateReverseModeIndicator();
             }
 
+            if (savedAlternatorMode) {
+                isAlternatorMode = savedAlternatorMode === 'true';
+                updateAlternatorModeButton();
+                updateAlternatorModeIndicator();
+            }
+
+            if (savedAlternatorStates) {
+                try {
+                    marketAlternatorState = JSON.parse(savedAlternatorStates);
+                } catch (e) {
+                    console.error('Error loading alternator states:', e);
+                }
+            }
+
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
@@ -1661,6 +1753,8 @@
                 sessionStorage.setItem('reverseCandleFilter', document.getElementById('reverseCandleFilter').checked);
                 sessionStorage.setItem('autoRefreshFilter', document.getElementById('autoRefreshFilter').checked);
                 sessionStorage.setItem('reverseMode', isReverseMode);
+                sessionStorage.setItem('alternatorMode', isAlternatorMode);
+                sessionStorage.setItem('alternatorStates', JSON.stringify(marketAlternatorState));
                 sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
@@ -1741,7 +1835,6 @@
             // FLOATING BROWSER FIX: Prevent rapid candle finalization
             const now = Date.now();
             if (lastCandleProcessTime[symbol] && (now - lastCandleProcessTime[symbol]) < 500) {
-                // Prevent candles from being finalized within 500ms of each other
                 console.log(`[THROTTLE] Skipping rapid candle finalization for ${symbol}`);
                 return;
             }
@@ -1931,7 +2024,7 @@
                 
                 // FLOATING BROWSER FIX: Prevent tick processing race conditions
                 if (isProcessingTicks) {
-                    return; // Skip if already processing another tick
+                    return;
                 }
                 isProcessingTicks = true;
 
@@ -1971,7 +2064,6 @@
                     logActivity(`${markets[symbol]} subscribed successfully`, 'success');
                 }
                 
-                // FLOATING BROWSER FIX: Release tick processing lock
                 isProcessingTicks = false;
             }
 
@@ -1994,7 +2086,6 @@
                         pendingTrades.set(data.buy.contract_id, tradeInfo);
                     }
                     
-                    // AGGRESSIVE FIX: Subscribe to contract immediately
                     ws.send(JSON.stringify({
                         proposal_open_contract: 1,
                         contract_id: data.buy.contract_id,
@@ -2022,30 +2113,25 @@
 
         // AGGRESSIVE FIX: Handle trade result with proper duplicate prevention
         function handleTradeResult(contract) {
-            // Only process finalized contracts
             if (!['won', 'lost', 'sold'].includes(contract.status)) {
                 return;
             }
             
-            // AGGRESSIVE FIX: Check if we've already processed this contract ID
             if (processedContracts.has(contract.contract_id)) {
                 console.log(`[DUPLICATE PREVENTED] Contract ${contract.contract_id} already processed`);
                 return;
             }
 
-            // AGGRESSIVE FIX: Mark this contract as processed immediately
             processedContracts.add(contract.contract_id);
 
             const profit = parseFloat(contract.profit || 0);
             const isWin = profit > 0;
 
-            // Update statistics
             tradeStats.total++;
             if (isWin) tradeStats.wins++;
             else tradeStats.losses++;
             tradeStats.profitLoss += profit;
 
-            // Create trade record
             const trade = {
                 id: contract.contract_id,
                 time: new Date().toLocaleTimeString(),
@@ -2057,31 +2143,23 @@
                 isWin: isWin
             };
 
-            // AGGRESSIVE FIX: Initialize tradeHistory if it's not an array
             if (!Array.isArray(tradeHistory)) {
                 tradeHistory = [];
                 logActivity('Trade history reinitialized', 'warning');
             }
 
-            // Add to trade history
             tradeHistory.unshift(trade);
             
-            // Keep only last 100 trades
             if (tradeHistory.length > 100) {
                 tradeHistory = tradeHistory.slice(0, 100);
             }
 
-            // AGGRESSIVE FIX: Update UI immediately and force refresh
             updateStats();
             updateTradeHistoryTable();
-            
-            // Save to storage
             saveSettings();
 
-            // Log the trade with contract ID for verification
             logActivity(`✅ TRADE RECORDED: ${trade.market} - ${trade.type} - P/L: ${trade.result} (ID: ${contract.contract_id})`, isWin ? 'success' : 'error');
 
-            // Check stop loss and take profit
             const stopLoss = parseFloat(document.getElementById('stopLoss').value);
             const takeProfit = parseFloat(document.getElementById('takeProfit').value);
 
@@ -2095,12 +2173,10 @@
                 stopAutoTrading();
             }
 
-            // Clean up pending trades
             if (pendingTrades.has(contract.contract_id)) {
                 pendingTrades.delete(contract.contract_id);
             }
 
-            // AGGRESSIVE FIX: Clean up processed contracts after 5 minutes to prevent memory leak
             setTimeout(() => {
                 processedContracts.delete(contract.contract_id);
             }, 300000);
@@ -2127,6 +2203,7 @@
                 document.getElementById('timerDisplay').classList.remove('hidden');
                 document.getElementById('autoTradeBtn').disabled = false;
                 document.getElementById('reverseModeBtn').disabled = false;
+                document.getElementById('alternatorModeBtn').disabled = false;
 
                 saveSettings();
                 startSessionTimer();
@@ -2173,6 +2250,7 @@
             document.getElementById('timerDisplay').classList.add('hidden');
             document.getElementById('autoTradeBtn').disabled = true;
             document.getElementById('reverseModeBtn').disabled = true;
+            document.getElementById('alternatorModeBtn').disabled = true;
             document.getElementById('loginBtn').disabled = false;
             document.getElementById('loginBtn').textContent = 'Login';
 
@@ -2319,7 +2397,7 @@
             return patternHigh > highestPreviousHigh;
         }
 
-        // Check for trading signals with all filters
+        // Check for trading signals with all filters + ALTERNATOR MODE
         function checkForSignals(symbol) {
             const liquidityGrabFilter = document.getElementById('liquidityGrabFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
@@ -2364,9 +2442,19 @@
                 if (buySignal) {
                     let shouldTrade = true;
                     let filterInfo = [];
+                    let tradeType = isReverseMode ? 'PUT' : 'CALL';
+
+                    // ALTERNATOR MODE: Aggressive enforcement
+                    if (isAlternatorMode) {
+                        const expectedType = getNextAlternatorTradeType(symbol);
+                        if (tradeType !== expectedType) {
+                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            return; // AGGRESSIVELY block this trade
+                        }
+                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
+                    }
 
                     if (shouldTrade) {
-                        const tradeType = isReverseMode ? 'PUT' : 'CALL';
                         const patternName = reverseCandleFilter ? 'Reverse One Candle Buy' : 'One Candle Buy';
                         const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
                         const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
@@ -2379,9 +2467,19 @@
                 if (sellSignal) {
                     let shouldTrade = true;
                     let filterInfo = [];
+                    let tradeType = isReverseMode ? 'CALL' : 'PUT';
+
+                    // ALTERNATOR MODE: Aggressive enforcement
+                    if (isAlternatorMode) {
+                        const expectedType = getNextAlternatorTradeType(symbol);
+                        if (tradeType !== expectedType) {
+                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            return; // AGGRESSIVELY block this trade
+                        }
+                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
+                    }
 
                     if (shouldTrade) {
-                        const tradeType = isReverseMode ? 'CALL' : 'PUT';
                         const patternName = reverseCandleFilter ? 'Reverse One Candle Sell' : 'One Candle Sell';
                         const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
                         const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
@@ -2401,6 +2499,7 @@
                 if (buySignal) {
                     let shouldTrade = true;
                     let filterInfo = [];
+                    let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
                     if (liquidityGrabFilter) {
                         isLiquidityGrab = isLiquidityGrabBottom(candles, liquidityLookback);
@@ -2411,8 +2510,17 @@
                         }
                     }
 
+                    // ALTERNATOR MODE: Aggressive enforcement
+                    if (shouldTrade && isAlternatorMode) {
+                        const expectedType = getNextAlternatorTradeType(symbol);
+                        if (tradeType !== expectedType) {
+                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            return; // AGGRESSIVELY block this trade
+                        }
+                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
+                    }
+
                     if (shouldTrade) {
-                        const tradeType = isReverseMode ? 'PUT' : 'CALL';
                         const patternName = reverseCandleFilter ? 'Reverse Tweezers Bottom' : 'Tweezers Bottom';
                         const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
                         const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
@@ -2425,6 +2533,7 @@
                 if (sellSignal) {
                     let shouldTrade = true;
                     let filterInfo = [];
+                    let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
                     if (liquidityGrabFilter) {
                         isLiquidityGrab = isLiquidityGrabTop(candles, liquidityLookback);
@@ -2435,8 +2544,17 @@
                         }
                     }
 
+                    // ALTERNATOR MODE: Aggressive enforcement
+                    if (shouldTrade && isAlternatorMode) {
+                        const expectedType = getNextAlternatorTradeType(symbol);
+                        if (tradeType !== expectedType) {
+                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            return; // AGGRESSIVELY block this trade
+                        }
+                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
+                    }
+
                     if (shouldTrade) {
-                        const tradeType = isReverseMode ? 'CALL' : 'PUT';
                         const patternName = reverseCandleFilter ? 'Reverse Tweezers Top' : 'Tweezers Top';
                         const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
                         const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
@@ -2650,7 +2768,7 @@
             return signalId;
         }
 
-        // Execute trade
+        // Execute trade with ALTERNATOR MODE integration
         async function executeTrade(symbol, type, candleKey) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 logActivity('Cannot execute trade: WebSocket not connected', 'error');
@@ -2710,6 +2828,12 @@
 
                     tradedCandles[symbol].add(candleKey);
 
+                    // ALTERNATOR MODE: Update state after successful trade execution
+                    if (isAlternatorMode) {
+                        updateAlternatorState(symbol, type);
+                        saveSettings(); // Save alternator state
+                    }
+
                     logActivity(`Trade executed: ${type} on ${markets[symbol]} - Stake: ${stake}`, 'success');
                 }
             } catch (error) {
@@ -2732,7 +2856,6 @@
         function updateTradeHistoryTable() {
             const tbody = document.getElementById('historyTableBody');
             
-            // AGGRESSIVE FIX: Validate tradeHistory
             if (!Array.isArray(tradeHistory)) {
                 console.error('tradeHistory is not an array, reinitializing');
                 tradeHistory = [];
@@ -2744,16 +2867,13 @@
                 return;
             }
 
-            // AGGRESSIVE FIX: Clear and rebuild entire table
             tbody.innerHTML = '';
             
             const displayCount = Math.min(tradeHistory.length, 100);
             
-            // AGGRESSIVE FIX: Add each trade with validation
             for (let i = 0; i < displayCount; i++) {
                 const trade = tradeHistory[i];
                 
-                // Skip invalid entries
                 if (!trade || typeof trade !== 'object') {
                     console.warn(`Invalid trade at index ${i}`, trade);
                     continue;
@@ -2771,8 +2891,7 @@
                 tbody.appendChild(row);
             }
             
-            // AGGRESSIVE FIX: Force DOM update
-            tbody.offsetHeight; // Force reflow
+            tbody.offsetHeight;
             
             updateTradeCountDisplay();
             
@@ -2796,7 +2915,6 @@
             
             activation_time = Math.floor(Date.now() / 1000);
             
-            // AGGRESSIVE FIX: Clear processed contracts on new session
             processedContracts.clear();
             
             Object.keys(markets).forEach(symbol => {
@@ -2805,6 +2923,11 @@
                 currentMinute[symbol] = undefined;
                 tradedCandles[symbol].clear();
             });
+            
+            // ALTERNATOR MODE: Reset all markets when starting
+            if (isAlternatorMode) {
+                resetAlternatorStates();
+            }
             
             document.getElementById('autoTradeBtn').textContent = 'Stop Auto Trade';
             document.getElementById('autoTradeBtn').className = 'btn btn-danger';
@@ -2832,6 +2955,7 @@
             logActivity(`Activation time set: ${new Date(activation_time * 1000).toLocaleTimeString()}`, 'info');
             logActivity(`Mode: ${oneCandleFilter ? 'ONE CANDLE' : 'TWO CANDLE (Tweezers)'}`, 'info');
             logActivity(`Reverse Mode: ${isReverseMode ? 'ON' : 'OFF'}`, isReverseMode ? 'success' : 'info');
+            logActivity(`Alternator Mode: ${isAlternatorMode ? 'ON - BUY-SELL-BUY pattern enforced per market' : 'OFF'}`, isAlternatorMode ? 'success' : 'info');
             
             const activeFilters = [];
             if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
@@ -2852,19 +2976,18 @@
             logActivity('✅ Trade history tracking: AGGRESSIVE MODE ENABLED', 'success');
             logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
             logActivity('✅ Double-tap clear history: ENABLED', 'success');
+            logActivity('✅ Alternator Mode: Per-market enforcement ACTIVE', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
 
             if (candleWatchdogTimer) clearInterval(candleWatchdogTimer);
             
-            // FLOATING BROWSER FIX: More conservative watchdog with debouncing
             let watchdogLastRun = 0;
             
             candleWatchdogTimer = setInterval(() => {
                 const now = Date.now();
                 
-                // Debounce: Don't run watchdog more than once per second
                 if (now - watchdogLastRun < 1000) {
                     return;
                 }
@@ -2879,14 +3002,13 @@
                     if (!activeMarkets[symbol] || !marketSubscriptions[symbol]) return;
                     if (currentMinute[symbol] === undefined) return;
 
-                    // FLOATING BROWSER FIX: Only force candle closure if significantly behind (>90 seconds)
                     if (currentServerMinute > currentMinute[symbol] + 90) {
                         const lastPrice = currentOHLC[symbol].close;
                         logActivity(`⚠️ Forcing candle closure for ${markets[symbol]} (>90s delay)`, 'warning');
                         finalizeCandle(symbol, currentServerMinute, lastPrice);
                     }
                 });
-            }, 2000); // Reduced frequency from 200ms to 2000ms
+            }, 2000);
 
             saveSettings();
         }
@@ -2934,6 +3056,18 @@
             }
         }
 
+        // Update alternator mode button
+        function updateAlternatorModeButton() {
+            const btn = document.getElementById('alternatorModeBtn');
+            if (isAlternatorMode) {
+                btn.textContent = 'Alternator: ON';
+                btn.className = 'btn btn-info';
+            } else {
+                btn.textContent = 'Alternator: OFF';
+                btn.className = 'btn btn-info';
+            }
+        }
+
         // Auto trade button
         document.getElementById('autoTradeBtn').addEventListener('click', () => {
             if (isAutoTrading) {
@@ -2948,6 +3082,7 @@
             isReverseMode = !isReverseMode;
             updateReverseModeButton();
             updateReverseModeIndicator();
+            checkFilterConflicts();
             saveSettings();
             
             if (isReverseMode) {
@@ -2957,24 +3092,40 @@
             }
         });
 
+        // ALTERNATOR MODE button
+        document.getElementById('alternatorModeBtn').addEventListener('click', () => {
+            isAlternatorMode = !isAlternatorMode;
+            updateAlternatorModeButton();
+            updateAlternatorModeIndicator();
+            checkFilterConflicts();
+            
+            if (isAlternatorMode) {
+                resetAlternatorStates();
+                logActivity('✅ ALTERNATOR MODE ENABLED: BUY-SELL-BUY pattern enforced separately for each market', 'success');
+                logActivity('[ALTERNATOR] Each market will alternate: CALL→PUT→CALL→PUT...', 'success');
+                logActivity('[ALTERNATOR] All markets reset to BUY (CALL) starting position', 'success');
+            } else {
+                logActivity('ALTERNATOR MODE DISABLED: Normal signal processing', 'info');
+            }
+            
+            saveSettings();
+        });
+
         // Clear history button with double-tap confirmation
         document.getElementById('clearHistoryBtn').addEventListener('click', () => {
             const btn = document.getElementById('clearHistoryBtn');
             
             if (!clearHistoryConfirmState) {
-                // First click - enter confirmation state
                 clearHistoryConfirmState = true;
                 btn.textContent = 'Are you sure?';
                 btn.classList.add('confirm-state');
                 logActivity('Click again to confirm clearing trade history', 'warning');
                 
-                // Reset after 3 seconds if no second click
                 clearHistoryTimeout = setTimeout(() => {
                     resetClearHistoryButton();
                     logActivity('Clear history cancelled', 'info');
                 }, 3000);
             } else {
-                // Second click - perform the clear
                 clearTimeout(clearHistoryTimeout);
                 
                 tradeHistory = [];
@@ -3069,8 +3220,8 @@
                 saveSettings();
             });
         });
-
-        // Settings change listeners
+    
+         // Settings change listeners
         document.getElementById('stakeAmount').addEventListener('change', () => {
             logActivity(`Stake amount updated to ${document.getElementById('stakeAmount').value}`);
             saveSettings();
@@ -3280,12 +3431,14 @@
             logActivity('✅ FLOATING BROWSER FIX: Race condition prevention enabled', 'success');
             logActivity('✅ Duration Type: Changed from dropdown to radio buttons', 'success');
             logActivity('✅ Clear History: Double-tap button implemented', 'success');
-            logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh', 'success');
+            logActivity('✅ ALTERNATOR MODE: Per-market BUY-SELL-BUY enforcement ENABLED', 'success');
+            logActivity('Features: Liquidity Grab, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
             logActivity('Liquidity Grab: Buy = Pattern low < previous lows (Spring), Sell = Pattern high > previous highs (Bull Trap)', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
             logActivity('Trade History: All signals will now appear in history', 'success');
             logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
             logActivity('Floating Browser: Optimized for always-active browsers', 'success');
+            logActivity('Alternator Mode: Each market alternates independently (CALL→PUT→CALL→PUT)', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
             logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
             logActivity('App ID: 116948 | All systems operational', 'success');
