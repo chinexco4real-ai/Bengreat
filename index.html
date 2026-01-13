@@ -1041,9 +1041,9 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">False Breakout Filter</span>
+                        <span class="filter-label">CCI Filter (Commodity Channel Index)</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="falseBreakoutFilter">
+                            <input type="checkbox" id="cciFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -1114,8 +1114,16 @@
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">Breakout Lookback</label>
-                        <input type="number" class="input-field" id="breakoutLookback" value="5" min="3" max="20" step="1">
+                        <label class="input-label">CCI Period</label>
+                        <input type="number" class="input-field" id="cciPeriod" value="14" min="5" max="50" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">CCI Oversold (-)</label>
+                        <input type="number" class="input-field" id="cciOversold" value="-100" min="-200" max="-50" step="10">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">CCI Overbought (+)</label>
+                        <input type="number" class="input-field" id="cciOverbought" value="100" min="50" max="200" step="10">
                     </div>
                     <div class="input-group">
                         <label class="input-label">SAR Acceleration</label>
@@ -1427,14 +1435,14 @@
                 return;
             }
 
-            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
+            const cciFilter = document.getElementById('cciFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
+            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (falseBreakoutFilter) {
-                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
+            if (cciFilter) {
+                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
             }
             
             let minCandles = Infinity;
@@ -1637,6 +1645,114 @@
             logActivity('[ALTERNATOR] All markets reset to BUY (CALL) starting position', 'success');
         }
 
+        // Calculate Typical Price for CCI
+        function calculateTypicalPrice(candle) {
+            return (candle.high + candle.low + candle.close) / 3;
+        }
+
+        // Calculate CCI (Commodity Channel Index)
+        function calculateCCI(candles, period = 14) {
+            if (candles.length < period) return [];
+
+            const cciValues = [];
+            const constant = 0.015; // Standard constant for CCI calculation
+
+            for (let i = period - 1; i < candles.length; i++) {
+                const periodCandles = candles.slice(i - period + 1, i + 1);
+                
+                // Calculate Typical Prices
+                const typicalPrices = periodCandles.map(c => calculateTypicalPrice(c));
+                
+                // Calculate SMA of Typical Prices
+                const sma = typicalPrices.reduce((sum, tp) => sum + tp, 0) / period;
+                
+                // Calculate Mean Deviation
+                const meanDeviation = typicalPrices.reduce((sum, tp) => sum + Math.abs(tp - sma), 0) / period;
+                
+                // Calculate CCI
+                const currentTP = typicalPrices[typicalPrices.length - 1];
+                const cci = meanDeviation !== 0 ? (currentTP - sma) / (constant * meanDeviation) : 0;
+                
+                cciValues.push({
+                    value: cci,
+                    typicalPrice: currentTP,
+                    sma: sma,
+                    meanDeviation: meanDeviation
+                });
+            }
+
+            return cciValues;
+        }
+
+        // Check for Bullish Divergence (for Buy signals)
+        function checkBullishDivergence(candles, cciValues, period) {
+            if (candles.length < period + 2 || cciValues.length < 2) return false;
+
+            // Get the last two pattern candles
+            const currentCandle = candles[candles.length - 1];
+            const prevCandle = candles[candles.length - 2];
+            
+            // Get corresponding CCI values
+            const currentCCI = cciValues[cciValues.length - 1];
+            const prevCCI = cciValues[cciValues.length - 2];
+
+            // Price makes lower low
+            const priceLowerLow = currentCandle.low < prevCandle.low;
+            
+            // CCI makes higher low (weaker downside momentum)
+            const cciHigherLow = currentCCI.value > prevCCI.value;
+
+            return priceLowerLow && cciHigherLow;
+        }
+
+        // Check for Bearish Divergence (for Sell signals)
+        function checkBearishDivergence(candles, cciValues, period) {
+            if (candles.length < period + 2 || cciValues.length < 2) return false;
+
+            // Get the last two pattern candles
+            const currentCandle = candles[candles.length - 1];
+            const prevCandle = candles[candles.length - 2];
+            
+            // Get corresponding CCI values
+            const currentCCI = cciValues[cciValues.length - 1];
+            const prevCCI = cciValues[cciValues.length - 2];
+
+            // Price makes higher high
+            const priceHigherHigh = currentCandle.high > prevCandle.high;
+            
+            // CCI makes lower high (weaker upside momentum)
+            const cciLowerHigh = currentCCI.value < prevCCI.value;
+
+            return priceHigherHigh && cciLowerHigh;
+        }
+
+        // Check CCI Signal
+        function checkCCISignal(candles, period, oversold, overbought) {
+            if (candles.length < period + 2) return { buy: false, sell: false, divergence: false };
+
+            const cciValues = calculateCCI(candles, period);
+            if (cciValues.length === 0) return { buy: false, sell: false, divergence: false };
+
+            const currentCCI = cciValues[cciValues.length - 1].value;
+
+            // Buy signal: CCI below oversold + Bullish Divergence
+            const isOversold = currentCCI < oversold;
+            const hasBullishDivergence = checkBullishDivergence(candles, cciValues, period);
+            const buySignal = isOversold && hasBullishDivergence;
+
+            // Sell signal: CCI above overbought + Bearish Divergence
+            const isOverbought = currentCCI > overbought;
+            const hasBearishDivergence = checkBearishDivergence(candles, cciValues, period);
+            const sellSignal = isOverbought && hasBearishDivergence;
+
+            return { 
+                buy: buySignal, 
+                sell: sellSignal, 
+                divergence: hasBullishDivergence || hasBearishDivergence,
+                currentCCI: currentCCI
+            };
+        }
+
         // Calculate Parabolic SAR
         function calculateParabolicSAR(candles, acceleration = 0.02, maximum = 0.2) {
             if (candles.length < 2) return null;
@@ -1725,7 +1841,7 @@
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
-            const savedFalseBreakoutFilter = sessionStorage.getItem('falseBreakoutFilter');
+            const savedCCIFilter = sessionStorage.getItem('cciFilter');
             const savedParabolicSARFilter = sessionStorage.getItem('parabolicSARFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
@@ -1738,7 +1854,9 @@
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
-            const savedBreakoutLookback = sessionStorage.getItem('breakoutLookback');
+            const savedCCIPeriod = sessionStorage.getItem('cciPeriod');
+            const savedCCIOversold = sessionStorage.getItem('cciOversold');
+            const savedCCIOverbought = sessionStorage.getItem('cciOverbought');
             const savedSarAcceleration = sessionStorage.getItem('sarAcceleration');
             const savedSarMaximum = sessionStorage.getItem('sarMaximum');
             const savedDurationType = sessionStorage.getItem('durationType');
@@ -1761,8 +1879,8 @@
                 activeMarkets = JSON.parse(savedMarkets);
             }
 
-            if (savedFalseBreakoutFilter) {
-                document.getElementById('falseBreakoutFilter').checked = savedFalseBreakoutFilter === 'true';
+            if (savedCCIFilter) {
+                document.getElementById('cciFilter').checked = savedCCIFilter === 'true';
             }
 
             if (savedParabolicSARFilter) {
@@ -1812,7 +1930,9 @@
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
-            if (savedBreakoutLookback) document.getElementById('breakoutLookback').value = savedBreakoutLookback;
+            if (savedCCIPeriod) document.getElementById('cciPeriod').value = savedCCIPeriod;
+            if (savedCCIOversold) document.getElementById('cciOversold').value = savedCCIOversold;
+            if (savedCCIOverbought) document.getElementById('cciOverbought').value = savedCCIOverbought;
             if (savedSarAcceleration) document.getElementById('sarAcceleration').value = savedSarAcceleration;
             if (savedSarMaximum) document.getElementById('sarMaximum').value = savedSarMaximum;
             if (savedDurationType) setDurationType(savedDurationType);
@@ -1854,7 +1974,7 @@
             try {
                 sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
                 sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
-                sessionStorage.setItem('falseBreakoutFilter', document.getElementById('falseBreakoutFilter').checked);
+                sessionStorage.setItem('cciFilter', document.getElementById('cciFilter').checked);
                 sessionStorage.setItem('parabolicSARFilter', document.getElementById('parabolicSARFilter').checked);
                 sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
@@ -1867,7 +1987,9 @@
                 sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
-                sessionStorage.setItem('breakoutLookback', document.getElementById('breakoutLookback').value);
+                sessionStorage.setItem('cciPeriod', document.getElementById('cciPeriod').value);
+                sessionStorage.setItem('cciOversold', document.getElementById('cciOversold').value);
+                sessionStorage.setItem('cciOverbought', document.getElementById('cciOverbought').value);
                 sessionStorage.setItem('sarAcceleration', document.getElementById('sarAcceleration').value);
                 sessionStorage.setItem('sarMaximum', document.getElementById('sarMaximum').value);
                 sessionStorage.setItem('durationType', getDurationType());
@@ -1976,14 +2098,14 @@
 
             updateCandleCounter();
             
-            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
+            const cciFilter = document.getElementById('cciFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
+            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (falseBreakoutFilter) {
-                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
+            if (cciFilter) {
+                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
             }
             
             if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
@@ -2480,59 +2602,17 @@
             });
         }
 
-        // Check for False Breakout Bottom - BULLISH REVERSAL
-        function isFalseBreakoutBottom(data, lookback) {
-            if (data.length < lookback + 2) return false;
-
-            const patternCandles = data.slice(-2);
-            const patternLow = Math.min(patternCandles[0].low, patternCandles[1].low);
-            const secondCandleClose = patternCandles[1].close;
-
-            const previousCandles = data.slice(-(lookback + 2), -2);
-            
-            const lowestPreviousLow = Math.min(...previousCandles.map(c => c.low));
-
-            // Break: Pattern low is lower than previous lows
-            const breakOccurred = patternLow < lowestPreviousLow;
-            
-            // Rejection: Second candle closes above its low (showing rejection)
-            const rejectionOccurred = secondCandleClose > (patternCandles[1].low * 1.001);
-
-            return breakOccurred && rejectionOccurred;
-        }
-
-        // Check for False Breakout Top - BEARISH REVERSAL
-        function isFalseBreakoutTop(data, lookback) {
-            if (data.length < lookback + 2) return false;
-
-            const patternCandles = data.slice(-2);
-            const patternHigh = Math.max(patternCandles[0].high, patternCandles[1].high);
-            const secondCandleClose = patternCandles[1].close;
-
-            const previousCandles = data.slice(-(lookback + 2), -2);
-            
-            const highestPreviousHigh = Math.max(...previousCandles.map(c => c.high));
-
-            // Break: Pattern high is higher than previous highs
-            const breakOccurred = patternHigh > highestPreviousHigh;
-            
-            // Rejection: Second candle closes below its high (showing rejection)
-            const rejectionOccurred = secondCandleClose < (patternCandles[1].high * 0.999);
-
-            return breakOccurred && rejectionOccurred;
-        }
-
-        // Check for trading signals with all filters + ALTERNATOR MODE + FALSE BREAKOUT + PARABOLIC SAR
+        // Check for trading signals with all filters + ALTERNATOR MODE + CCI + PARABOLIC SAR
         function checkForSignals(symbol) {
-            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
+            const cciFilter = document.getElementById('cciFilter').checked;
             const parabolicSARFilter = document.getElementById('parabolicSARFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
+            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (falseBreakoutFilter) {
-                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
+            if (cciFilter) {
+                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
             }
             
             if (candleData[symbol].length < requiredCandles) return;
@@ -2560,8 +2640,15 @@
             const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value) / 100;
             const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value) / 100;
 
-            let isFalseBreakout = null;
+            let cciSignal = { buy: false, sell: false, divergence: false, currentCCI: 0 };
             let sarSignal = { buy: false, sell: false };
+
+            // Check CCI if enabled
+            if (cciFilter && candles.length >= cciPeriod + 2) {
+                const cciOversold = parseFloat(document.getElementById('cciOversold').value);
+                const cciOverbought = parseFloat(document.getElementById('cciOverbought').value);
+                cciSignal = checkCCISignal(candles, cciPeriod, cciOversold, cciOverbought);
+            }
 
             // Check Parabolic SAR if enabled
             if (parabolicSARFilter && candles.length >= 3) {
@@ -2578,13 +2665,12 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
-                    // False Breakout Filter
-                    if (falseBreakoutFilter) {
-                        isFalseBreakout = isFalseBreakoutBottom(candles, breakoutLookback);
-                        if (!isFalseBreakout) {
+                    // CCI Filter
+                    if (cciFilter) {
+                        if (!cciSignal.buy) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`False Breakout: Rejection below previous ${breakoutLookback}-candle support`);
+                            filterInfo.push(`CCI: Oversold (${cciSignal.currentCCI.toFixed(2)}) + Bullish Divergence`);
                         }
                     }
 
@@ -2602,7 +2688,7 @@
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
-                            return; // AGGRESSIVELY block this trade
+                            return;
                         }
                         filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
@@ -2622,13 +2708,12 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
-                    // False Breakout Filter
-                    if (falseBreakoutFilter) {
-                        isFalseBreakout = isFalseBreakoutTop(candles, breakoutLookback);
-                        if (!isFalseBreakout) {
+                    // CCI Filter
+                    if (cciFilter) {
+                        if (!cciSignal.sell) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`False Breakout: Rejection above previous ${breakoutLookback}-candle resistance`);
+                            filterInfo.push(`CCI: Overbought (${cciSignal.currentCCI.toFixed(2)}) + Bearish Divergence`);
                         }
                     }
 
@@ -2646,7 +2731,7 @@
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
-                            return; // AGGRESSIVELY block this trade
+                            return;
                         }
                         filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
@@ -2673,13 +2758,12 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
-                    // False Breakout Filter
-                    if (falseBreakoutFilter) {
-                        isFalseBreakout = isFalseBreakoutBottom(candles, breakoutLookback);
-                        if (!isFalseBreakout) {
+                    // CCI Filter
+                    if (cciFilter) {
+                        if (!cciSignal.buy) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`False Breakout: Rejection below previous ${breakoutLookback}-candle support`);
+                            filterInfo.push(`CCI: Oversold (${cciSignal.currentCCI.toFixed(2)}) + Bullish Divergence`);
                         }
                     }
 
@@ -2697,7 +2781,7 @@
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
-                            return; // AGGRESSIVELY block this trade
+                            return;
                         }
                         filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
@@ -2717,13 +2801,12 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
-                    // False Breakout Filter
-                    if (falseBreakoutFilter) {
-                        isFalseBreakout = isFalseBreakoutTop(candles, breakoutLookback);
-                        if (!isFalseBreakout) {
+                    // CCI Filter
+                    if (cciFilter) {
+                        if (!cciSignal.sell) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`False Breakout: Rejection above previous ${breakoutLookback}-candle resistance`);
+                            filterInfo.push(`CCI: Overbought (${cciSignal.currentCCI.toFixed(2)}) + Bearish Divergence`);
                         }
                     }
 
@@ -2741,7 +2824,7 @@
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
-                            return; // AGGRESSIVELY block this trade
+                            return;
                         }
                         filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
@@ -3133,15 +3216,15 @@
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            const falseBreakoutFilter = document.getElementById('falseBreakoutFilter').checked;
+            const cciFilter = document.getElementById('cciFilter').checked;
             const parabolicSARFilter = document.getElementById('parabolicSARFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const breakoutLookback = parseInt(document.getElementById('breakoutLookback').value);
+            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (falseBreakoutFilter) {
-                requiredCandles = Math.max(requiredCandles, breakoutLookback + 2);
+            if (cciFilter) {
+                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
             }
             
             logActivity('Auto trading started', 'success');
@@ -3152,8 +3235,10 @@
             
             const activeFilters = [];
             if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
-            if (falseBreakoutFilter) {
-                activeFilters.push(`False Breakout (${breakoutLookback} candles) - Buy: Rejection below support, Sell: Rejection above resistance`);
+            if (cciFilter) {
+                const oversold = document.getElementById('cciOversold').value;
+                const overbought = document.getElementById('cciOverbought').value;
+                activeFilters.push(`CCI Filter (Period: ${cciPeriod}, Oversold: ${oversold}, Overbought: ${overbought}) - Buy: CCI<${oversold} + Bullish Divergence, Sell: CCI>${overbought} + Bearish Divergence`);
             }
             if (parabolicSARFilter) activeFilters.push('Parabolic SAR - Buy: SAR flips below, Sell: SAR flips above');
             if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
@@ -3171,7 +3256,7 @@
             logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
             logActivity('✅ Double-tap clear history: ENABLED', 'success');
             logActivity('✅ Alternator Mode: Per-market enforcement ACTIVE', 'success');
-            logActivity('✅ False Breakout Filter: Pattern-based reversal detection ENABLED', 'success');
+            logActivity('✅ CCI Filter: Commodity Channel Index with Divergence detection ENABLED', 'success');
             logActivity('✅ Parabolic SAR Filter: Trend reversal confirmation ENABLED', 'success');
 
             updateCandleCounter();
@@ -3337,10 +3422,12 @@
         });
 
         // Filter change listeners
-        document.getElementById('falseBreakoutFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('falseBreakoutFilter').checked;
-            const lookback = document.getElementById('breakoutLookback').value;
-            logActivity(`False Breakout filter ${enabled ? `enabled (${lookback} candles, Buy: Rejection below support, Sell: Rejection above resistance)` : 'disabled'}`);
+        document.getElementById('cciFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('cciFilter').checked;
+            const period = document.getElementById('cciPeriod').value;
+            const oversold = document.getElementById('cciOversold').value;
+            const overbought = document.getElementById('cciOverbought').value;
+            logActivity(`CCI filter ${enabled ? `enabled (Period: ${period}, Oversold: ${oversold}, Overbought: ${overbought}, Buy: CCI<oversold + Bullish Divergence, Sell: CCI>overbought + Bearish Divergence)` : 'disabled'}`);
             if (isAutoTrading) {
                 updateCandleCounter();
             }
@@ -3441,11 +3528,21 @@
             saveSettings();
         });
 
-        document.getElementById('breakoutLookback').addEventListener('change', () => {
-            logActivity(`Breakout lookback updated to ${document.getElementById('breakoutLookback').value} candles`);
-            if (isAutoTrading && document.getElementById('falseBreakoutFilter').checked) {
+        document.getElementById('cciPeriod').addEventListener('change', () => {
+            logActivity(`CCI period updated to ${document.getElementById('cciPeriod').value} candles`);
+            if (isAutoTrading && document.getElementById('cciFilter').checked) {
                 updateCandleCounter();
             }
+            saveSettings();
+        });
+
+        document.getElementById('cciOversold').addEventListener('change', () => {
+            logActivity(`CCI oversold threshold updated to ${document.getElementById('cciOversold').value}`);
+            saveSettings();
+        });
+
+        document.getElementById('cciOverbought').addEventListener('change', () => {
+            logActivity(`CCI overbought threshold updated to ${document.getElementById('cciOverbought').value}`);
             saveSettings();
         });
 
@@ -3646,10 +3743,10 @@
             logActivity('✅ Duration Type: Radio buttons implemented', 'success');
             logActivity('✅ Clear History: Double-tap button implemented', 'success');
             logActivity('✅ ALTERNATOR MODE: Per-market BUY-SELL-BUY enforcement ENABLED', 'success');
-            logActivity('✅ FALSE BREAKOUT FILTER: Pattern-based reversal detection ENABLED', 'success');
+            logActivity('✅ CCI FILTER: Commodity Channel Index with Divergence detection ENABLED', 'success');
             logActivity('✅ PARABOLIC SAR FILTER: Trend reversal confirmation ENABLED', 'success');
-            logActivity('Features: False Breakout, Parabolic SAR, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
-            logActivity('False Breakout: Buy = Rejection below support, Sell = Rejection above resistance', 'success');
+            logActivity('Features: CCI, Parabolic SAR, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
+            logActivity('CCI Filter: Buy = CCI<Oversold + Bullish Divergence, Sell = CCI>Overbought + Bearish Divergence', 'success');
             logActivity('Parabolic SAR: Buy = SAR flips below price, Sell = SAR flips above price', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
             logActivity('Trade History: All signals will now appear in history', 'success');
@@ -3663,4 +3760,3 @@
     </script>
 </body>
 </html>
-                                
