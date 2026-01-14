@@ -1041,16 +1041,16 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">CCI Filter (Commodity Channel Index)</span>
+                        <span class="filter-label">Williams Fractals Filter</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="cciFilter">
+                            <input type="checkbox" id="fractalsFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
                     <div class="filter-item">
-                        <span class="filter-label">Parabolic SAR Filter</span>
+                        <span class="filter-label">ADX Filter (Average Directional Index)</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="parabolicSARFilter">
+                            <input type="checkbox" id="adxFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -1114,24 +1114,24 @@
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">CCI Period</label>
-                        <input type="number" class="input-field" id="cciPeriod" value="14" min="5" max="50" step="1">
+                        <label class="input-label">Fractals Span</label>
+                        <input type="number" class="input-field" id="fractalsSpan" value="5" min="3" max="9" step="2">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">CCI Oversold (-)</label>
-                        <input type="number" class="input-field" id="cciOversold" value="-100" min="-200" max="-50" step="10">
+                        <label class="input-label">Fractal Rejection %</label>
+                        <input type="number" class="input-field" id="fractalRejection" value="0.1" min="0.01" max="1" step="0.01">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">CCI Overbought (+)</label>
-                        <input type="number" class="input-field" id="cciOverbought" value="100" min="50" max="200" step="10">
+                        <label class="input-label">ADX Period</label>
+                        <input type="number" class="input-field" id="adxPeriod" value="14" min="5" max="30" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">SAR Acceleration</label>
-                        <input type="number" class="input-field" id="sarAcceleration" value="0.02" min="0.01" max="0.1" step="0.01">
+                        <label class="input-label">ADX Weak Threshold</label>
+                        <input type="number" class="input-field" id="adxWeak" value="25" min="15" max="30" step="1">
                     </div>
                     <div class="input-group">
-                        <label class="input-label">SAR Maximum</label>
-                        <input type="number" class="input-field" id="sarMaximum" value="0.2" min="0.1" max="0.5" step="0.05">
+                        <label class="input-label">ADX Skip Threshold</label>
+                        <input type="number" class="input-field" id="adxSkip" value="30" min="25" max="40" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
@@ -1435,14 +1435,20 @@
                 return;
             }
 
-            const cciFilter = document.getElementById('cciFilter').checked;
+            const fractalsFilter = document.getElementById('fractalsFilter').checked;
+            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
+            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
+            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (cciFilter) {
-                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
+            if (fractalsFilter) {
+                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
+            }
+            
+            if (adxFilter) {
+                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
             }
             
             let minCandles = Infinity;
@@ -1645,204 +1651,266 @@
             logActivity('[ALTERNATOR] All markets reset to BUY (CALL) starting position', 'success');
         }
 
-        // Calculate Typical Price for CCI
-        function calculateTypicalPrice(candle) {
-            return (candle.high + candle.low + candle.close) / 3;
-        }
+        // Calculate Williams Fractals
+        function calculateWilliamsFractals(candles, span = 5) {
+            if (candles.length < span) return { upFractals: [], downFractals: [] };
 
-        // Calculate CCI (Commodity Channel Index)
-        function calculateCCI(candles, period = 14) {
-            if (candles.length < period) return [];
+            const upFractals = [];
+            const downFractals = [];
+            const centerIndex = Math.floor(span / 2);
 
-            const cciValues = [];
-            const constant = 0.015; // Standard constant for CCI calculation
-
-            for (let i = period - 1; i < candles.length; i++) {
-                const periodCandles = candles.slice(i - period + 1, i + 1);
+            for (let i = centerIndex; i < candles.length - centerIndex; i++) {
+                const centerCandle = candles[i];
                 
-                // Calculate Typical Prices
-                const typicalPrices = periodCandles.map(c => calculateTypicalPrice(c));
-                
-                // Calculate SMA of Typical Prices
-                const sma = typicalPrices.reduce((sum, tp) => sum + tp, 0) / period;
-                
-                // Calculate Mean Deviation
-                const meanDeviation = typicalPrices.reduce((sum, tp) => sum + Math.abs(tp - sma), 0) / period;
-                
-                // Calculate CCI
-                const currentTP = typicalPrices[typicalPrices.length - 1];
-                const cci = meanDeviation !== 0 ? (currentTP - sma) / (constant * meanDeviation) : 0;
-                
-                cciValues.push({
-                    value: cci,
-                    typicalPrice: currentTP,
-                    sma: sma,
-                    meanDeviation: meanDeviation
-                });
-            }
-
-            return cciValues;
-        }
-
-        // Check for Bullish Divergence (for Buy signals)
-        function checkBullishDivergence(candles, cciValues, period) {
-            if (candles.length < period + 2 || cciValues.length < 2) return false;
-
-            // Get the last two pattern candles
-            const currentCandle = candles[candles.length - 1];
-            const prevCandle = candles[candles.length - 2];
-            
-            // Get corresponding CCI values
-            const currentCCI = cciValues[cciValues.length - 1];
-            const prevCCI = cciValues[cciValues.length - 2];
-
-            // Price makes lower low
-            const priceLowerLow = currentCandle.low < prevCandle.low;
-            
-            // CCI makes higher low (weaker downside momentum)
-            const cciHigherLow = currentCCI.value > prevCCI.value;
-
-            return priceLowerLow && cciHigherLow;
-        }
-
-        // Check for Bearish Divergence (for Sell signals)
-        function checkBearishDivergence(candles, cciValues, period) {
-            if (candles.length < period + 2 || cciValues.length < 2) return false;
-
-            // Get the last two pattern candles
-            const currentCandle = candles[candles.length - 1];
-            const prevCandle = candles[candles.length - 2];
-            
-            // Get corresponding CCI values
-            const currentCCI = cciValues[cciValues.length - 1];
-            const prevCCI = cciValues[cciValues.length - 2];
-
-            // Price makes higher high
-            const priceHigherHigh = currentCandle.high > prevCandle.high;
-            
-            // CCI makes lower high (weaker upside momentum)
-            const cciLowerHigh = currentCCI.value < prevCCI.value;
-
-            return priceHigherHigh && cciLowerHigh;
-        }
-
-        // Check CCI Signal
-        function checkCCISignal(candles, period, oversold, overbought) {
-            if (candles.length < period + 2) return { buy: false, sell: false, divergence: false };
-
-            const cciValues = calculateCCI(candles, period);
-            if (cciValues.length === 0) return { buy: false, sell: false, divergence: false };
-
-            const currentCCI = cciValues[cciValues.length - 1].value;
-
-            // Buy signal: CCI below oversold + Bullish Divergence
-            const isOversold = currentCCI < oversold;
-            const hasBullishDivergence = checkBullishDivergence(candles, cciValues, period);
-            const buySignal = isOversold && hasBullishDivergence;
-
-            // Sell signal: CCI above overbought + Bearish Divergence
-            const isOverbought = currentCCI > overbought;
-            const hasBearishDivergence = checkBearishDivergence(candles, cciValues, period);
-            const sellSignal = isOverbought && hasBearishDivergence;
-
-            return { 
-                buy: buySignal, 
-                sell: sellSignal, 
-                divergence: hasBullishDivergence || hasBearishDivergence,
-                currentCCI: currentCCI
-            };
-        }
-
-        // Calculate Parabolic SAR
-        function calculateParabolicSAR(candles, acceleration = 0.02, maximum = 0.2) {
-            if (candles.length < 2) return null;
-
-            const sarData = [];
-            let isUptrend = candles[1].close > candles[0].close;
-            let sar = isUptrend ? candles[0].low : candles[0].high;
-            let ep = isUptrend ? candles[0].high : candles[0].low;
-            let af = acceleration;
-
-            for (let i = 1; i < candles.length; i++) {
-                const candle = candles[i];
-                
-                // Calculate new SAR
-                sar = sar + af * (ep - sar);
-                
-                // Check for trend reversal
-                const reversalOccurred = isUptrend ? candle.low < sar : candle.high > sar;
-                
-                if (reversalOccurred) {
-                    // Trend reversal
-                    isUptrend = !isUptrend;
-                    sar = ep;
-                    ep = isUptrend ? candle.high : candle.low;
-                    af = acceleration;
-                } else {
-                    // Continue current trend
-                    if (isUptrend) {
-                        if (candle.high > ep) {
-                            ep = candle.high;
-                            af = Math.min(af + acceleration, maximum);
-                        }
-                        // Ensure SAR is below the lowest of last 2 lows
-                        if (i >= 1) {
-                            const prevLow = Math.min(candles[i - 1].low, candle.low);
-                            if (sar > prevLow) {
-                                sar = prevLow;
-                            }
-                        }
-                    } else {
-                        if (candle.low < ep) {
-                            ep = candle.low;
-                            af = Math.min(af + acceleration, maximum);
-                        }
-                        // Ensure SAR is above the highest of last 2 highs
-                        if (i >= 1) {
-                            const prevHigh = Math.max(candles[i - 1].high, candle.high);
-                            if (sar < prevHigh) {
-                                sar = prevHigh;
-                            }
-                        }
+                // Check for Up-fractal (potential top)
+                let isUpFractal = true;
+                for (let j = -centerIndex; j <= centerIndex; j++) {
+                    if (j === 0) continue;
+                    if (candles[i + j].high >= centerCandle.high) {
+                        isUpFractal = false;
+                        break;
                     }
                 }
                 
-                sarData.push({
-                    sar: sar,
-                    isUptrend: isUptrend,
-                    ep: ep,
-                    af: af
-                });
+                if (isUpFractal) {
+                    upFractals.push({
+                        index: i,
+                        price: centerCandle.high,
+                        time: centerCandle.time
+                    });
+                }
+                
+                // Check for Down-fractal (potential bottom)
+                let isDownFractal = true;
+                for (let j = -centerIndex; j <= centerIndex; j++) {
+                    if (j === 0) continue;
+                    if (candles[i + j].low <= centerCandle.low) {
+                        isDownFractal = false;
+                        break;
+                    }
+                }
+                
+                if (isDownFractal) {
+                    downFractals.push({
+                        index: i,
+                        price: centerCandle.low,
+                        time: centerCandle.time
+                    });
+                }
             }
 
-            return sarData;
+            return { upFractals, downFractals };
         }
 
-        // Check SAR signal
-        function checkSARSignal(candles, acceleration, maximum) {
-            if (candles.length < 3) return { buy: false, sell: false };
+        // Check for Fractal Rejection (Bullish - Buy Signal)
+        function checkFractalBullishRejection(candles, span, rejectionPercent) {
+            if (candles.length < span + 2) return false;
 
-            const sarData = calculateParabolicSAR(candles, acceleration, maximum);
-            if (!sarData || sarData.length < 2) return { buy: false, sell: false };
-
-            const currentSAR = sarData[sarData.length - 1];
-            const previousSAR = sarData[sarData.length - 2];
+            const fractals = calculateWilliamsFractals(candles, span);
             
-            // Buy signal: SAR flips from above to below (trend changes to uptrend)
-            const buySignal = !previousSAR.isUptrend && currentSAR.isUptrend;
-            
-            // Sell signal: SAR flips from below to above (trend changes to downtrend)
-            const sellSignal = previousSAR.isUptrend && !currentSAR.isUptrend;
+            if (fractals.downFractals.length === 0) return false;
 
-            return { buy: buySignal, sell: sellSignal };
+            // Get the most recent down-fractal
+            const lastDownFractal = fractals.downFractals[fractals.downFractals.length - 1];
+            
+            // Check if fractal is recent enough (within last few candles)
+            const fractalAge = candles.length - 1 - lastDownFractal.index;
+            if (fractalAge > Math.floor(span / 2) + 2) return false;
+
+            // Get candles after the fractal
+            const candlesAfterFractal = candles.slice(lastDownFractal.index + 1);
+            
+            if (candlesAfterFractal.length === 0) return false;
+
+            // Check if price rejected the fractal low (closed above it)
+            const lastCandle = candlesAfterFractal[candlesAfterFractal.length - 1];
+            const rejectionThreshold = lastDownFractal.price * (1 + rejectionPercent / 100);
+            
+            return lastCandle.close > rejectionThreshold;
+        }
+
+        // Check for Fractal Rejection (Bearish - Sell Signal)
+        function checkFractalBearishRejection(candles, span, rejectionPercent) {
+            if (candles.length < span + 2) return false;
+
+            const fractals = calculateWilliamsFractals(candles, span);
+            
+            if (fractals.upFractals.length === 0) return false;
+
+            // Get the most recent up-fractal
+            const lastUpFractal = fractals.upFractals[fractals.upFractals.length - 1];
+            
+            // Check if fractal is recent enough (within last few candles)
+            const fractalAge = candles.length - 1 - lastUpFractal.index;
+            if (fractalAge > Math.floor(span / 2) + 2) return false;
+
+            // Get candles after the fractal
+            const candlesAfterFractal = candles.slice(lastUpFractal.index + 1);
+            
+            if (candlesAfterFractal.length === 0) return false;
+
+            // Check if price rejected the fractal high (closed below it)
+            const lastCandle = candlesAfterFractal[candlesAfterFractal.length - 1];
+            const rejectionThreshold = lastUpFractal.price * (1 - rejectionPercent / 100);
+            
+            return lastCandle.close < rejectionThreshold;
+        }
+
+        // Calculate True Range
+        function calculateTrueRange(candles) {
+            const tr = [];
+            for (let i = 1; i < candles.length; i++) {
+                const high = candles[i].high;
+                const low = candles[i].low;
+                const prevClose = candles[i - 1].close;
+                
+                const trueRange = Math.max(
+                    high - low,
+                    Math.abs(high - prevClose),
+                    Math.abs(low - prevClose)
+                );
+                
+                tr.push(trueRange);
+            }
+            return tr;
+        }
+
+        // Calculate Directional Movement
+        function calculateDirectionalMovement(candles) {
+            const plusDM = [];
+            const minusDM = [];
+            
+            for (let i = 1; i < candles.length; i++) {
+                const highDiff = candles[i].high - candles[i - 1].high;
+                const lowDiff = candles[i - 1].low - candles[i].low;
+                
+                let plusDMValue = 0;
+                let minusDMValue = 0;
+                
+                if (highDiff > lowDiff && highDiff > 0) {
+                    plusDMValue = highDiff;
+                }
+                
+                if (lowDiff > highDiff && lowDiff > 0) {
+                    minusDMValue = lowDiff;
+                }
+                
+                plusDM.push(plusDMValue);
+                minusDM.push(minusDMValue);
+            }
+            
+            return { plusDM, minusDM };
+        }
+
+        // Calculate Smoothed Average (Wilder's smoothing)
+        function calculateSmoothedAverage(values, period) {
+            if (values.length < period) return [];
+            
+            const smoothed = [];
+            
+            // First smoothed value is simple average
+            let sum = 0;
+            for (let i = 0; i < period; i++) {
+                sum += values[i];
+            }
+            smoothed.push(sum / period);
+            
+            // Subsequent values use Wilder's smoothing
+            for (let i = period; i < values.length; i++) {
+                const newValue = (smoothed[smoothed.length - 1] * (period - 1) + values[i]) / period;
+                smoothed.push(newValue);
+            }
+            
+            return smoothed;
+        }
+
+        // Calculate ADX (Average Directional Index)
+        function calculateADX(candles, period = 14) {
+            if (candles.length < period + 1) return [];
+
+            const tr = calculateTrueRange(candles);
+            const { plusDM, minusDM } = calculateDirectionalMovement(candles);
+            
+            // Smooth TR, +DM, and -DM
+            const smoothedTR = calculateSmoothedAverage(tr, period);
+            const smoothedPlusDM = calculateSmoothedAverage(plusDM, period);
+            const smoothedMinusDM = calculateSmoothedAverage(minusDM, period);
+            
+            if (smoothedTR.length === 0) return [];
+            
+            // Calculate +DI and -DI
+            const plusDI = [];
+            const minusDI = [];
+            
+            for (let i = 0; i < smoothedTR.length; i++) {
+                if (smoothedTR[i] !== 0) {
+                    plusDI.push((smoothedPlusDM[i] / smoothedTR[i]) * 100);
+                    minusDI.push((smoothedMinusDM[i] / smoothedTR[i]) * 100);
+                } else {
+                    plusDI.push(0);
+                    minusDI.push(0);
+                }
+            }
+            
+            // Calculate DX (Directional Index)
+            const dx = [];
+            for (let i = 0; i < plusDI.length; i++) {
+                const diSum = plusDI[i] + minusDI[i];
+                if (diSum !== 0) {
+                    dx.push((Math.abs(plusDI[i] - minusDI[i]) / diSum) * 100);
+                } else {
+                    dx.push(0);
+                }
+            }
+            
+            // Calculate ADX (smoothed DX)
+            const adx = calculateSmoothedAverage(dx, period);
+            
+            return adx;
+        }
+
+        // Check ADX Signal
+        function checkADXSignal(candles, period, weakThreshold, skipThreshold) {
+            if (candles.length < period + 2) return { buy: false, sell: false, skip: false };
+
+            const adxValues = calculateADX(candles, period);
+            
+            if (adxValues.length < 2) return { buy: false, sell: false, skip: false };
+
+            const currentADX = adxValues[adxValues.length - 1];
+            const previousADX = adxValues[adxValues.length - 2];
+
+            // Skip trades if ADX is too strong (trending market)
+            if (currentADX > skipThreshold) {
+                return { buy: false, sell: false, skip: true, currentADX };
+            }
+
+            // Check for weak trend (ranging conditions)
+            const isWeakTrend = currentADX < weakThreshold;
+            
+            // Check for decreasing ADX (momentum fading)
+            const isDecreasing = currentADX < previousADX;
+
+            // Both conditions must be true for reversal setup
+            const reversalSetup = isWeakTrend && isDecreasing;
+
+            return { 
+                buy: reversalSetup, 
+                sell: reversalSetup, 
+                skip: false,
+                currentADX,
+                previousADX,
+                isWeakTrend,
+                isDecreasing
+            };
         }
 
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
-            const savedCCIFilter = sessionStorage.getItem('cciFilter');
-            const savedParabolicSARFilter = sessionStorage.getItem('parabolicSARFilter');
+            const savedFractalsFilter = sessionStorage.getItem('fractalsFilter');
+            const savedADXFilter = sessionStorage.getItem('adxFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedOneCandleFilter = sessionStorage.getItem('oneCandleFilter');
@@ -1854,11 +1922,11 @@
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
-            const savedCCIPeriod = sessionStorage.getItem('cciPeriod');
-            const savedCCIOversold = sessionStorage.getItem('cciOversold');
-            const savedCCIOverbought = sessionStorage.getItem('cciOverbought');
-            const savedSarAcceleration = sessionStorage.getItem('sarAcceleration');
-            const savedSarMaximum = sessionStorage.getItem('sarMaximum');
+            const savedFractalsSpan = sessionStorage.getItem('fractalsSpan');
+            const savedFractalRejection = sessionStorage.getItem('fractalRejection');
+            const savedADXPeriod = sessionStorage.getItem('adxPeriod');
+            const savedADXWeak = sessionStorage.getItem('adxWeak');
+            const savedADXSkip = sessionStorage.getItem('adxSkip');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
@@ -1879,12 +1947,12 @@
                 activeMarkets = JSON.parse(savedMarkets);
             }
 
-            if (savedCCIFilter) {
-                document.getElementById('cciFilter').checked = savedCCIFilter === 'true';
+            if (savedFractalsFilter) {
+                document.getElementById('fractalsFilter').checked = savedFractalsFilter === 'true';
             }
 
-            if (savedParabolicSARFilter) {
-                document.getElementById('parabolicSARFilter').checked = savedParabolicSARFilter === 'true';
+            if (savedADXFilter) {
+                document.getElementById('adxFilter').checked = savedADXFilter === 'true';
             }
 
             if (savedZeroFilter) {
@@ -1930,11 +1998,11 @@
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
-            if (savedCCIPeriod) document.getElementById('cciPeriod').value = savedCCIPeriod;
-            if (savedCCIOversold) document.getElementById('cciOversold').value = savedCCIOversold;
-            if (savedCCIOverbought) document.getElementById('cciOverbought').value = savedCCIOverbought;
-            if (savedSarAcceleration) document.getElementById('sarAcceleration').value = savedSarAcceleration;
-            if (savedSarMaximum) document.getElementById('sarMaximum').value = savedSarMaximum;
+            if (savedFractalsSpan) document.getElementById('fractalsSpan').value = savedFractalsSpan;
+            if (savedFractalRejection) document.getElementById('fractalRejection').value = savedFractalRejection;
+            if (savedADXPeriod) document.getElementById('adxPeriod').value = savedADXPeriod;
+            if (savedADXWeak) document.getElementById('adxWeak').value = savedADXWeak;
+            if (savedADXSkip) document.getElementById('adxSkip').value = savedADXSkip;
             if (savedDurationType) setDurationType(savedDurationType);
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
@@ -1974,8 +2042,8 @@
             try {
                 sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
                 sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
-                sessionStorage.setItem('cciFilter', document.getElementById('cciFilter').checked);
-                sessionStorage.setItem('parabolicSARFilter', document.getElementById('parabolicSARFilter').checked);
+                sessionStorage.setItem('fractalsFilter', document.getElementById('fractalsFilter').checked);
+                sessionStorage.setItem('adxFilter', document.getElementById('adxFilter').checked);
                 sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
                 sessionStorage.setItem('oneCandleFilter', document.getElementById('oneCandleFilter').checked);
@@ -1987,11 +2055,11 @@
                 sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
-                sessionStorage.setItem('cciPeriod', document.getElementById('cciPeriod').value);
-                sessionStorage.setItem('cciOversold', document.getElementById('cciOversold').value);
-                sessionStorage.setItem('cciOverbought', document.getElementById('cciOverbought').value);
-                sessionStorage.setItem('sarAcceleration', document.getElementById('sarAcceleration').value);
-                sessionStorage.setItem('sarMaximum', document.getElementById('sarMaximum').value);
+                sessionStorage.setItem('fractalsSpan', document.getElementById('fractalsSpan').value);
+                sessionStorage.setItem('fractalRejection', document.getElementById('fractalRejection').value);
+                sessionStorage.setItem('adxPeriod', document.getElementById('adxPeriod').value);
+                sessionStorage.setItem('adxWeak', document.getElementById('adxWeak').value);
+                sessionStorage.setItem('adxSkip', document.getElementById('adxSkip').value);
                 sessionStorage.setItem('durationType', getDurationType());
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
@@ -2098,14 +2166,20 @@
 
             updateCandleCounter();
             
-            const cciFilter = document.getElementById('cciFilter').checked;
+            const fractalsFilter = document.getElementById('fractalsFilter').checked;
+            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
+            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
+            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (cciFilter) {
-                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
+            if (fractalsFilter) {
+                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
+            }
+            
+            if (adxFilter) {
+                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
             }
             
             if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
@@ -2602,17 +2676,22 @@
             });
         }
 
-        // Check for trading signals with all filters + ALTERNATOR MODE + CCI + PARABOLIC SAR
+        // Check for trading signals with all filters + ALTERNATOR MODE + FRACTALS + ADX
         function checkForSignals(symbol) {
-            const cciFilter = document.getElementById('cciFilter').checked;
-            const parabolicSARFilter = document.getElementById('parabolicSARFilter').checked;
+            const fractalsFilter = document.getElementById('fractalsFilter').checked;
+            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
+            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
+            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (cciFilter) {
-                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
+            if (fractalsFilter) {
+                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
+            }
+            
+            if (adxFilter) {
+                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
             }
             
             if (candleData[symbol].length < requiredCandles) return;
@@ -2640,21 +2719,26 @@
             const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value) / 100;
             const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value) / 100;
 
-            let cciSignal = { buy: false, sell: false, divergence: false, currentCCI: 0 };
-            let sarSignal = { buy: false, sell: false };
+            let fractalSignal = { buy: false, sell: false };
+            let adxSignal = { buy: false, sell: false, skip: false };
 
-            // Check CCI if enabled
-            if (cciFilter && candles.length >= cciPeriod + 2) {
-                const cciOversold = parseFloat(document.getElementById('cciOversold').value);
-                const cciOverbought = parseFloat(document.getElementById('cciOverbought').value);
-                cciSignal = checkCCISignal(candles, cciPeriod, cciOversold, cciOverbought);
+            // Check Williams Fractals if enabled
+            if (fractalsFilter && candles.length >= fractalsSpan + 2) {
+                const fractalRejection = parseFloat(document.getElementById('fractalRejection').value);
+                fractalSignal.buy = checkFractalBullishRejection(candles, fractalsSpan, fractalRejection);
+                fractalSignal.sell = checkFractalBearishRejection(candles, fractalsSpan, fractalRejection);
             }
 
-            // Check Parabolic SAR if enabled
-            if (parabolicSARFilter && candles.length >= 3) {
-                const sarAcceleration = parseFloat(document.getElementById('sarAcceleration').value);
-                const sarMaximum = parseFloat(document.getElementById('sarMaximum').value);
-                sarSignal = checkSARSignal(candles, sarAcceleration, sarMaximum);
+            // Check ADX if enabled
+            if (adxFilter && candles.length >= adxPeriod + 2) {
+                const adxWeak = parseFloat(document.getElementById('adxWeak').value);
+                const adxSkip = parseFloat(document.getElementById('adxSkip').value);
+                adxSignal = checkADXSignal(candles, adxPeriod, adxWeak, adxSkip);
+                
+                // Skip trading if ADX indicates strong trend
+                if (adxSignal.skip) {
+                    return;
+                }
             }
 
             // ONE CANDLE MODE
@@ -2665,21 +2749,21 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
-                    // CCI Filter
-                    if (cciFilter) {
-                        if (!cciSignal.buy) {
+                    // Williams Fractals Filter
+                    if (fractalsFilter) {
+                        if (!fractalSignal.buy) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`CCI: Oversold (${cciSignal.currentCCI.toFixed(2)}) + Bullish Divergence`);
+                            filterInfo.push('Fractals: Bullish reversal at down-fractal');
                         }
                     }
 
-                    // Parabolic SAR Filter
-                    if (shouldTrade && parabolicSARFilter) {
-                        if (!sarSignal.buy) {
+                    // ADX Filter
+                    if (shouldTrade && adxFilter) {
+                        if (!adxSignal.buy) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push('SAR: Bullish reversal confirmed');
+                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
                         }
                     }
 
@@ -2708,21 +2792,21 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
-                    // CCI Filter
-                    if (cciFilter) {
-                        if (!cciSignal.sell) {
+                    // Williams Fractals Filter
+                    if (fractalsFilter) {
+                        if (!fractalSignal.sell) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`CCI: Overbought (${cciSignal.currentCCI.toFixed(2)}) + Bearish Divergence`);
+                            filterInfo.push('Fractals: Bearish reversal at up-fractal');
                         }
                     }
 
-                    // Parabolic SAR Filter
-                    if (shouldTrade && parabolicSARFilter) {
-                        if (!sarSignal.sell) {
+                    // ADX Filter
+                    if (shouldTrade && adxFilter) {
+                        if (!adxSignal.sell) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push('SAR: Bearish reversal confirmed');
+                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
                         }
                     }
 
@@ -2758,21 +2842,21 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
-                    // CCI Filter
-                    if (cciFilter) {
-                        if (!cciSignal.buy) {
+                    // Williams Fractals Filter
+                    if (fractalsFilter) {
+                        if (!fractalSignal.buy) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`CCI: Oversold (${cciSignal.currentCCI.toFixed(2)}) + Bullish Divergence`);
+                            filterInfo.push('Fractals: Bullish reversal at down-fractal');
                         }
                     }
 
-                    // Parabolic SAR Filter
-                    if (shouldTrade && parabolicSARFilter) {
-                        if (!sarSignal.buy) {
+                    // ADX Filter
+                    if (shouldTrade && adxFilter) {
+                        if (!adxSignal.buy) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push('SAR: Bullish reversal confirmed');
+                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
                         }
                     }
 
@@ -2801,21 +2885,21 @@
                     let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
-                    // CCI Filter
-                    if (cciFilter) {
-                        if (!cciSignal.sell) {
+                    // Williams Fractals Filter
+                    if (fractalsFilter) {
+                        if (!fractalSignal.sell) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push(`CCI: Overbought (${cciSignal.currentCCI.toFixed(2)}) + Bearish Divergence`);
+                            filterInfo.push('Fractals: Bearish reversal at up-fractal');
                         }
                     }
 
-                    // Parabolic SAR Filter
-                    if (shouldTrade && parabolicSARFilter) {
-                        if (!sarSignal.sell) {
+                    // ADX Filter
+                    if (shouldTrade && adxFilter) {
+                        if (!adxSignal.sell) {
                             shouldTrade = false;
                         } else {
-                            filterInfo.push('SAR: Bearish reversal confirmed');
+                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
                         }
                     }
 
@@ -3216,15 +3300,20 @@
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            const cciFilter = document.getElementById('cciFilter').checked;
-            const parabolicSARFilter = document.getElementById('parabolicSARFilter').checked;
+            const fractalsFilter = document.getElementById('fractalsFilter').checked;
+            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const cciPeriod = parseInt(document.getElementById('cciPeriod').value);
+            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
+            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
-            if (cciFilter) {
-                requiredCandles = Math.max(requiredCandles, cciPeriod + 2);
+            if (fractalsFilter) {
+                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
+            }
+            
+            if (adxFilter) {
+                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
             }
             
             logActivity('Auto trading started', 'success');
@@ -3235,12 +3324,16 @@
             
             const activeFilters = [];
             if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
-            if (cciFilter) {
-                const oversold = document.getElementById('cciOversold').value;
-                const overbought = document.getElementById('cciOverbought').value;
-                activeFilters.push(`CCI Filter (Period: ${cciPeriod}, Oversold: ${oversold}, Overbought: ${overbought}) - Buy: CCI<${oversold} + Bullish Divergence, Sell: CCI>${overbought} + Bearish Divergence`);
+            if (fractalsFilter) {
+                const span = document.getElementById('fractalsSpan').value;
+                const rejection = document.getElementById('fractalRejection').value;
+                activeFilters.push(`Williams Fractals (Span: ${span}, Rejection: ${rejection}%) - Buy: Down-fractal rejection, Sell: Up-fractal rejection`);
             }
-            if (parabolicSARFilter) activeFilters.push('Parabolic SAR - Buy: SAR flips below, Sell: SAR flips above');
+            if (adxFilter) {
+                const weak = document.getElementById('adxWeak').value;
+                const skip = document.getElementById('adxSkip').value;
+                activeFilters.push(`ADX Filter (Period: ${adxPeriod}, Weak: <${weak}, Skip: >${skip}) - Buy/Sell: ADX<${weak} + Decreasing`);
+            }
             if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
             if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
             if (document.getElementById('reverseCandleFilter').checked) activeFilters.push('Reverse Candle');
@@ -3256,8 +3349,8 @@
             logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
             logActivity('✅ Double-tap clear history: ENABLED', 'success');
             logActivity('✅ Alternator Mode: Per-market enforcement ACTIVE', 'success');
-            logActivity('✅ CCI Filter: Commodity Channel Index with Divergence detection ENABLED', 'success');
-            logActivity('✅ Parabolic SAR Filter: Trend reversal confirmation ENABLED', 'success');
+            logActivity('✅ Williams Fractals Filter: Reversal pattern detection ENABLED', 'success');
+            logActivity('✅ ADX Filter: Weak trend + momentum fade confirmation ENABLED', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
@@ -3422,23 +3515,26 @@
         });
 
         // Filter change listeners
-        document.getElementById('cciFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('cciFilter').checked;
-            const period = document.getElementById('cciPeriod').value;
-            const oversold = document.getElementById('cciOversold').value;
-            const overbought = document.getElementById('cciOverbought').value;
-            logActivity(`CCI filter ${enabled ? `enabled (Period: ${period}, Oversold: ${oversold}, Overbought: ${overbought}, Buy: CCI<oversold + Bullish Divergence, Sell: CCI>overbought + Bearish Divergence)` : 'disabled'}`);
+        document.getElementById('fractalsFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('fractalsFilter').checked;
+            const span = document.getElementById('fractalsSpan').value;
+            const rejection = document.getElementById('fractalRejection').value;
+            logActivity(`Williams Fractals filter ${enabled ? `enabled (Span: ${span}, Rejection: ${rejection}%, Buy: Down-fractal rejection, Sell: Up-fractal rejection)` : 'disabled'}`);
             if (isAutoTrading) {
                 updateCandleCounter();
             }
             saveSettings();
         });
 
-        document.getElementById('parabolicSARFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('parabolicSARFilter').checked;
-            const accel = document.getElementById('sarAcceleration').value;
-            const max = document.getElementById('sarMaximum').value;
-            logActivity(`Parabolic SAR filter ${enabled ? `enabled (Accel: ${accel}, Max: ${max})` : 'disabled'}`);
+        document.getElementById('adxFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('adxFilter').checked;
+            const period = document.getElementById('adxPeriod').value;
+            const weak = document.getElementById('adxWeak').value;
+            const skip = document.getElementById('adxSkip').value;
+            logActivity(`ADX filter ${enabled ? `enabled (Period: ${period}, Weak: <${weak}, Skip: >${skip})` : 'disabled'}`);
+            if (isAutoTrading) {
+                updateCandleCounter();
+            }
             saveSettings();
         });
 
@@ -3528,31 +3624,34 @@
             saveSettings();
         });
 
-        document.getElementById('cciPeriod').addEventListener('change', () => {
-            logActivity(`CCI period updated to ${document.getElementById('cciPeriod').value} candles`);
-            if (isAutoTrading && document.getElementById('cciFilter').checked) {
+        document.getElementById('fractalsSpan').addEventListener('change', () => {
+            logActivity(`Fractals span updated to ${document.getElementById('fractalsSpan').value} candles`);
+            if (isAutoTrading && document.getElementById('fractalsFilter').checked) {
                 updateCandleCounter();
             }
             saveSettings();
         });
 
-        document.getElementById('cciOversold').addEventListener('change', () => {
-            logActivity(`CCI oversold threshold updated to ${document.getElementById('cciOversold').value}`);
+        document.getElementById('fractalRejection').addEventListener('change', () => {
+            logActivity(`Fractal rejection threshold updated to ${document.getElementById('fractalRejection').value}%`);
             saveSettings();
         });
 
-        document.getElementById('cciOverbought').addEventListener('change', () => {
-            logActivity(`CCI overbought threshold updated to ${document.getElementById('cciOverbought').value}`);
+        document.getElementById('adxPeriod').addEventListener('change', () => {
+            logActivity(`ADX period updated to ${document.getElementById('adxPeriod').value} candles`);
+            if (isAutoTrading && document.getElementById('adxFilter').checked) {
+                updateCandleCounter();
+            }
             saveSettings();
         });
 
-        document.getElementById('sarAcceleration').addEventListener('change', () => {
-            logActivity(`SAR acceleration updated to ${document.getElementById('sarAcceleration').value}`);
+        document.getElementById('adxWeak').addEventListener('change', () => {
+            logActivity(`ADX weak threshold updated to ${document.getElementById('adxWeak').value}`);
             saveSettings();
         });
 
-        document.getElementById('sarMaximum').addEventListener('change', () => {
-            logActivity(`SAR maximum updated to ${document.getElementById('sarMaximum').value}`);
+        document.getElementById('adxSkip').addEventListener('change', () => {
+            logActivity(`ADX skip threshold updated to ${document.getElementById('adxSkip').value}`);
             saveSettings();
         });
 
@@ -3743,11 +3842,11 @@
             logActivity('✅ Duration Type: Radio buttons implemented', 'success');
             logActivity('✅ Clear History: Double-tap button implemented', 'success');
             logActivity('✅ ALTERNATOR MODE: Per-market BUY-SELL-BUY enforcement ENABLED', 'success');
-            logActivity('✅ CCI FILTER: Commodity Channel Index with Divergence detection ENABLED', 'success');
-            logActivity('✅ PARABOLIC SAR FILTER: Trend reversal confirmation ENABLED', 'success');
-            logActivity('Features: CCI, Parabolic SAR, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
-            logActivity('CCI Filter: Buy = CCI<Oversold + Bullish Divergence, Sell = CCI>Overbought + Bearish Divergence', 'success');
-            logActivity('Parabolic SAR: Buy = SAR flips below price, Sell = SAR flips above price', 'success');
+            logActivity('✅ WILLIAMS FRACTALS FILTER: Reversal pattern detection ENABLED', 'success');
+            logActivity('✅ ADX FILTER: Weak trend + momentum fade confirmation ENABLED', 'success');
+            logActivity('Features: Williams Fractals, ADX, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
+            logActivity('Williams Fractals: Buy = Down-fractal rejection, Sell = Up-fractal rejection', 'success');
+            logActivity('ADX Filter: Buy/Sell = ADX<Weak threshold + Decreasing momentum', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
             logActivity('Trade History: All signals will now appear in history', 'success');
             logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
