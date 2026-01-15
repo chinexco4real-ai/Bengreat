@@ -637,6 +637,11 @@
             background: rgba(255, 71, 87, 0.1);
         }
 
+        .signal-item.skipped {
+            border-left-color: #f39c12;
+            background: rgba(243, 156, 18, 0.1);
+        }
+
         .signal-text {
             font-size: 13px;
             color: #e0e0e0;
@@ -1041,7 +1046,7 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">Zero Closing Filter (Perfect 0)</span>
+                        <span class="filter-label">Zero Closing Filter(Perfect 0)</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="zeroClosingFilter">
                             <span class="slider"></span>
@@ -1174,6 +1179,10 @@
                     <div class="stat-value loss" id="totalLosses">0</div>
                 </div>
                 <div class="stat-card">
+                    <div class="stat-label">Skipped</div>
+                    <div class="stat-value" id="totalSkipped">0</div>
+                </div>
+                <div class="stat-card">
                     <div class="stat-label">P/L</div>
                     <div class="stat-value" id="profitLoss">0.00</div>
                 </div>
@@ -1258,6 +1267,7 @@
             total: 0,
             wins: 0,
             losses: 0,
+            skipped: 0,
             profitLoss: 0
         };
         let pendingTrades = new Map();
@@ -1709,7 +1719,7 @@
                     updateStats();
                 } catch (e) {
                     console.error('Error loading trade stats:', e);
-                    tradeStats = { total: 0, wins: 0, losses: 0, profitLoss: 0 };
+                    tradeStats = { total: 0, wins: 0, losses: 0, skipped: 0, profitLoss: 0 };
                 }
             }
 
@@ -1736,7 +1746,7 @@
                 sessionStorage.setItem('durationType', getDurationType());
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
-                sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
+                sessionStorage.setItem('minUpperWickSell',document.getElementById('minUpperWickSell').value);
                 sessionStorage.setItem('minUpperWickBuy', document.getElementById('minUpperWickBuy').value);
                 sessionStorage.setItem('minLowerWickSell', document.getElementById('minLowerWickSell').value);
                 sessionStorage.setItem('matchingDiffBuy', document.getElementById('matchingDiffBuy').value);
@@ -2337,7 +2347,7 @@
             });
         }
 
-        // Check for trading signals with all filters + ALTERNATOR MODE
+        // ✅ FIXED: Check for trading signals with proper execution order
         function checkForSignals(symbol) {
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
             
@@ -2356,7 +2366,10 @@
             }
 
             const candleKey = `${lastCandle.time}`;
+            
+            // ✅ FIX #1: Check if already traded FIRST (before any processing)
             if (tradedCandles[symbol].has(candleKey)) {
+                // Silent skip - already traded this candle
                 return;
             }
 
@@ -2372,46 +2385,96 @@
             if (oneCandleFilter) {
                 const buySignal = checkOneCandleBuy(lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minLowerWickBuy, minUpperWickBuy);
                 if (buySignal) {
-                    let shouldTrade = true;
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
-                    // ALTERNATOR MODE: Aggressive enforcement
-                    if (shouldTrade && isAlternatorMode) {
+                    // ✅ FIX #2: Check WebSocket connection BEFORE marking as traded
+                    if (!ws || ws.readyState !== WebSocket.OPEN) {
+                        logActivity(`⚠️ Signal skipped for ${markets[symbol]}: WebSocket not connected`, 'warning');
+                        tradeStats.skipped++;
+                        updateStats();
+                        saveSettings();
+                        return;
+                    }
+
+                    // ALTERNATOR MODE: Check if this trade type is allowed
+                    if (isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
-                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            
+                            // Add skipped signal to monitor
+                            const patternName = reverseCandleFilter ? 'Reverse One Candle Buy' : 'One Candle Buy';
+                            const signalText = isReverseMode ? `${patternName} SELL (REVERSED) - BLOCKED BY ALTERNATOR` : `${patternName} BUY - BLOCKED BY ALTERNATOR`;
+                            addSignal(symbol, signalText, 'skipped');
+                            
+                            saveSettings();
                             return;
                         }
                     }
 
-                    if (shouldTrade) {
-                        const patternName = reverseCandleFilter ? 'Reverse One Candle Buy' : 'One Candle Buy';
-                        const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
-                        addSignal(symbol, signalText);
-                        executeTrade(symbol, tradeType, candleKey);
-                    }
+                    // ✅ FIX #3: Mark candle as traded BEFORE executing trade
+                    tradedCandles[symbol].add(candleKey);
+
+                    // ✅ FIX #4: Display signal
+                    const patternName = reverseCandleFilter ? 'Reverse One Candle Buy' : 'One Candle Buy';
+                    const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
+                    addSignal(symbol, signalText);
+
+                    // ✅ FIX #5: Execute trade with proper error handling
+                    executeTrade(symbol, tradeType, candleKey).catch(error => {
+                        logActivity(`❌ Trade failed for ${markets[symbol]}: ${error.message}`, 'error');
+                        // Optional: Allow retry by removing from tradedCandles
+                        // tradedCandles[symbol].delete(candleKey);
+                    });
                 }
 
                 const sellSignal = checkOneCandleSell(lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minUpperWickSell, minLowerWickSell);
                 if (sellSignal) {
-                    let shouldTrade = true;
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
-                    // ALTERNATOR MODE: Aggressive enforcement
-                    if (shouldTrade && isAlternatorMode) {
+                    // ✅ FIX #2: Check WebSocket connection BEFORE marking as traded
+                    if (!ws || ws.readyState !== WebSocket.OPEN) {
+                        logActivity(`⚠️ Signal skipped for ${markets[symbol]}: WebSocket not connected`, 'warning');
+                        tradeStats.skipped++;
+                        updateStats();
+                        saveSettings();
+                        return;
+                    }
+
+                    // ALTERNATOR MODE: Check if this trade type is allowed
+                    if (isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
-                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            
+                            // Add skipped signal to monitor
+                            const patternName = reverseCandleFilter ? 'Reverse One Candle Sell' : 'One Candle Sell';
+                            const signalText = isReverseMode ? `${patternName} BUY (REVERSED) - BLOCKED BY ALTERNATOR` : `${patternName} SELL - BLOCKED BY ALTERNATOR`;
+                            addSignal(symbol, signalText, 'skipped');
+                            
+                            saveSettings();
                             return;
                         }
                     }
 
-                    if (shouldTrade) {
-                        const patternName = reverseCandleFilter ? 'Reverse One Candle Sell' : 'One Candle Sell';
-                        const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
-                        addSignal(symbol, signalText);
-                        executeTrade(symbol, tradeType, candleKey);
-                    }
+                    // ✅ FIX #3: Mark candle as traded BEFORE executing trade
+                    tradedCandles[symbol].add(candleKey);
+
+                    // ✅ FIX #4: Display signal
+                    const patternName = reverseCandleFilter ? 'Reverse One Candle Sell' : 'One Candle Sell';
+                    const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
+                    addSignal(symbol, signalText);
+
+                    // ✅ FIX #5: Execute trade with proper error handling
+                    executeTrade(symbol, tradeType, candleKey).catch(error => {
+                        logActivity(`❌ Trade failed for ${markets[symbol]}: ${error.message}`, 'error');
+                        // Optional: Allow retry by removing from tradedCandles
+                        // tradedCandles[symbol].delete(candleKey);
+                    });
                 }
             } else {
                 // TWO CANDLE MODE
@@ -2423,46 +2486,96 @@
 
                 const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minLowerWickBuy, minUpperWickBuy, matchingDiffBuy);
                 if (buySignal) {
-                    let shouldTrade = true;
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
 
-                    // ALTERNATOR MODE: Aggressive enforcement
-                    if (shouldTrade && isAlternatorMode) {
+                    // ✅ FIX #2: Check WebSocket connection BEFORE marking as traded
+                    if (!ws || ws.readyState !== WebSocket.OPEN) {
+                        logActivity(`⚠️ Signal skipped for ${markets[symbol]}: WebSocket not connected`, 'warning');
+                        tradeStats.skipped++;
+                        updateStats();
+                        saveSettings();
+                        return;
+                    }
+
+                    // ALTERNATOR MODE: Check if this trade type is allowed
+                    if (isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
-                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            
+                            // Add skipped signal to monitor
+                            const patternName = reverseCandleFilter ? 'Reverse Tweezers Bottom' : 'Tweezers Bottom';
+                            const signalText = isReverseMode ? `${patternName} SELL (REVERSED) - BLOCKED BY ALTERNATOR` : `${patternName} BUY - BLOCKED BY ALTERNATOR`;
+                            addSignal(symbol, signalText, 'skipped');
+                            
+                            saveSettings();
                             return;
                         }
                     }
 
-                    if (shouldTrade) {
-                        const patternName = reverseCandleFilter ? 'Reverse Tweezers Bottom' : 'Tweezers Bottom';
-                        const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
-                        addSignal(symbol, signalText);
-                        executeTrade(symbol, tradeType, candleKey);
-                    }
+                    // ✅ FIX #3: Mark candle as traded BEFORE executing trade
+                    tradedCandles[symbol].add(candleKey);
+
+                    // ✅ FIX #4: Display signal
+                    const patternName = reverseCandleFilter ? 'Reverse Tweezers Bottom' : 'Tweezers Bottom';
+                    const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
+                    addSignal(symbol, signalText);
+
+                    // ✅ FIX #5: Execute trade with proper error handling
+                    executeTrade(symbol, tradeType, candleKey).catch(error => {
+                        logActivity(`❌ Trade failed for ${markets[symbol]}: ${error.message}`, 'error');
+                        // Optional: Allow retry by removing from tradedCandles
+                        // tradedCandles[symbol].delete(candleKey);
+                    });
                 }
 
                 const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minUpperWickSell, minLowerWickSell, matchingDiffSell);
                 if (sellSignal) {
-                    let shouldTrade = true;
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
 
-                    // ALTERNATOR MODE: Aggressive enforcement
-                    if (shouldTrade && isAlternatorMode) {
+                    // ✅ FIX #2: Check WebSocket connection BEFORE marking as traded
+                    if (!ws || ws.readyState !== WebSocket.OPEN) {
+                        logActivity(`⚠️ Signal skipped for ${markets[symbol]}: WebSocket not connected`, 'warning');
+                        tradeStats.skipped++;
+                        updateStats();
+                        saveSettings();
+                        return;
+                    }
+
+                    // ALTERNATOR MODE: Check if this trade type is allowed
+                    if (isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
-                            logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
+                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            
+                            // Add skipped signal to monitor
+                            const patternName = reverseCandleFilter ? 'Reverse Tweezers Top' : 'Tweezers Top';
+                            const signalText = isReverseMode ? `${patternName} BUY (REVERSED) - BLOCKED BY ALTERNATOR` : `${patternName} SELL - BLOCKED BY ALTERNATOR`;
+                            addSignal(symbol, signalText, 'skipped');
+                            
+                            saveSettings();
                             return;
                         }
                     }
 
-                    if (shouldTrade) {
-                        const patternName = reverseCandleFilter ? 'Reverse Tweezers Top' : 'Tweezers Top';
-                        const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
-                        addSignal(symbol, signalText);
-                        executeTrade(symbol, tradeType, candleKey);
-                    }
+                    // ✅ FIX #3: Mark candle as traded BEFORE executing trade
+                    tradedCandles[symbol].add(candleKey);
+
+                    // ✅ FIX #4: Display signal
+                    const patternName = reverseCandleFilter ? 'Reverse Tweezers Top' : 'Tweezers Top';
+                    const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
+                    addSignal(symbol, signalText);
+
+                    // ✅ FIX #5: Execute trade with proper error handling
+                    executeTrade(symbol, tradeType, candleKey).catch(error => {
+                        logActivity(`❌ Trade failed for ${markets[symbol]}: ${error.message}`, 'error');
+                        // Optional: Allow retry by removing from tradedCandles
+                        // tradedCandles[symbol].delete(candleKey);
+                    });
                 }
             }
         }
@@ -2643,9 +2756,9 @@
             return true;
         }
 
-        // Add signal to monitor
+        // Add signal to monitor with status
         let signalCounter = 0;
-        function addSignal(symbol, pattern) {
+        function addSignal(symbol, pattern, status = 'active') {
             const container = document.getElementById('signalsContainer');
             
             if (isFirstSignal) {
@@ -2657,7 +2770,7 @@
             
             const time = new Date().toLocaleTimeString();
             const signalDiv = document.createElement('div');
-            signalDiv.className = 'signal-item';
+            signalDiv.className = `signal-item ${status}`;
             signalDiv.id = signalId;
             signalDiv.innerHTML = `<div class="signal-text">[${time}] ${markets[symbol]} - ${pattern}</div>`;
             
@@ -2670,11 +2783,13 @@
             return signalId;
         }
 
-        // Execute trade with ALTERNATOR MODE integration
+        // ✅ FIXED: Execute trade with proper error handling
         async function executeTrade(symbol, type, candleKey) {
+            // This check is redundant now (done before calling), but kept for safety
             if (!ws || ws.readyState !== WebSocket.OPEN) {
-                logActivity('Cannot execute trade: WebSocket not connected', 'error');
-                return;
+                const error = new Error('WebSocket not connected');
+                logActivity(`Cannot execute trade: ${error.message}`, 'error');
+                throw error;
             }
 
             const stake = parseFloat(document.getElementById('stakeAmount').value);
@@ -2701,7 +2816,7 @@
                 const proposalResponse = await new Promise((resolve, reject) => {
                     const timeout = setTimeout(() => {
                         pendingProposals.delete(reqId);
-                        reject(new Error('Proposal timeout'));
+                        reject(new Error('Proposal timeout (5s)'));
                     }, 5000);
                     
                     pendingProposals.set(reqId, { resolve, reject, timeout });
@@ -2728,18 +2843,17 @@
                         price: stake
                     }));
 
-                    tradedCandles[symbol].add(candleKey);
-
                     // ALTERNATOR MODE: Update state after successful trade execution
                     if (isAlternatorMode) {
                         updateAlternatorState(symbol, type);
                         saveSettings(); // Save alternator state
                     }
 
-                    logActivity(`Trade executed: ${type} on ${markets[symbol]} - Stake: ${stake}`, 'success');
+                    logActivity(`✅ Trade executed: ${type} on ${markets[symbol]} - Stake: ${stake}`, 'success');
                 }
             } catch (error) {
-                logActivity(`Trade execution failed: ${error.message}`, 'error');
+                logActivity(`❌ Trade execution failed for ${markets[symbol]}: ${error.message}`, 'error');
+                throw error; // Re-throw to be caught by caller
             }
         }
 
@@ -2748,6 +2862,7 @@
             document.getElementById('totalTrades').textContent = tradeStats.total;
             document.getElementById('totalWins').textContent = tradeStats.wins;
             document.getElementById('totalLosses').textContent = tradeStats.losses;
+            document.getElementById('totalSkipped').textContent = tradeStats.skipped;
             
             const plElement = document.getElementById('profitLoss');
             plElement.textContent = tradeStats.profitLoss.toFixed(2);
@@ -2866,9 +2981,11 @@
             }
             
             logActivity(`Waiting for ${requiredCandles} candle(s) before analyzing`, 'info');
-            logActivity('✅ Trade history tracking: AGGRESSIVE MODE ENABLED', 'success');
-            logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
-            logActivity('✅ Double-tap clear history: ENABLED', 'success');
+            logActivity('✅ FIXED: Trade execution order optimized', 'success');
+            logActivity('✅ FIXED: WebSocket check before signal display', 'success');
+            logActivity('✅ FIXED: Candle marked as traded before execution', 'success');
+            logActivity('✅ FIXED: Proper error handling for failed trades', 'success');
+            logActivity('✅ Skipped signals tracking enabled', 'success');
             logActivity('✅ Alternator Mode: Per-market enforcement ACTIVE', 'success');
 
             updateCandleCounter();
@@ -3022,7 +3139,7 @@
                 clearTimeout(clearHistoryTimeout);
                 
                 tradeHistory = [];
-                tradeStats = { total: 0, wins: 0, losses: 0, profitLoss: 0 };
+                tradeStats = { total: 0, wins: 0, losses: 0, skipped: 0, profitLoss: 0 };
                 processedContracts.clear();
                 updateStats();
                 updateTradeHistoryTable();
@@ -3296,23 +3413,26 @@
         });
 
         // Log system information
-           logActivity(`Browser: ${navigator.userAgent}`, 'info');
-           logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
+        logActivity(`Browser: ${navigator.userAgent}`, 'info');
+        logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
 
         // Log startup complete
         setTimeout(() => {
             logActivity('Ben Sniper Bot initialized successfully!', 'success');
-            logActivity('✅ AGGRESSIVE FIX: Trade history duplicate prevention enabled', 'success');
-            logActivity('✅ FLOATING BROWSER FIX: Race condition prevention enabled', 'success');
-            logActivity('✅ Duration Type: Radio buttons implemented', 'success');
-            logActivity('✅ Clear History: Double-tap button implemented', 'success');
-            logActivity('✅ ALTERNATOR MODE: Per-market BUY-SELL-BUY enforcement ENABLED', 'success');
+            logActivity('✅ CRITICAL FIX: Trade execution order completely optimized', 'success');
+            logActivity('✅ FIX #1: Candle traded check happens FIRST', 'success');
+            logActivity('✅ FIX #2: WebSocket validation BEFORE marking candle', 'success');
+            logActivity('✅ FIX #3: Candle marked as traded BEFORE execution', 'success');
+            logActivity('✅ FIX #4: Signal display only after validation', 'success');
+            logActivity('✅ FIX #5: Proper async/await error handling', 'success');
+            logActivity('✅ Skipped signals now tracked in statistics', 'success');
+            logActivity('✅ Alternator Mode: Per-market BUY-SELL-BUY enforcement', 'success');
+            logActivity('✅ Trade history: Duplicate prevention enabled', 'success');
+            logActivity('✅ Floating browser: Race condition prevention active', 'success');
             logActivity('Features: One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
-            logActivity('Trade History: All signals will now appear in history', 'success');
+            logActivity('Signal Flow: Check Already Traded → Validate WS → Mark Traded → Display Signal → Execute Trade', 'success');
             logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
-            logActivity('Floating Browser: Optimized for always-active browsers', 'success');
-            logActivity('Alternator Mode: Each market alternates independently (CALL→PUT→CALL→PUT)', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
             logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
             logActivity('App ID: 116948 | All systems operational', 'success');
