@@ -1041,20 +1041,6 @@
                 <h2 class="panel-title">🔧 Filters</h2>
                 <div class="filter-section">
                     <div class="filter-item">
-                        <span class="filter-label">Williams Fractals Filter</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="fractalsFilter">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="filter-item">
-                        <span class="filter-label">ADX Filter (Average Directional Index)</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="adxFilter">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="filter-item">
                         <span class="filter-label">Zero Closing Filter (Perfect 0)</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="zeroClosingFilter">
@@ -1112,26 +1098,6 @@
                     <div class="input-group">
                         <label class="input-label">Take Profit</label>
                         <input type="number" class="input-field" id="takeProfit" value="20" min="0" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Fractals Span</label>
-                        <input type="number" class="input-field" id="fractalsSpan" value="5" min="3" max="9" step="2">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Fractal Rejection %</label>
-                        <input type="number" class="input-field" id="fractalRejection" value="0.1" min="0.01" max="1" step="0.01">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">ADX Period</label>
-                        <input type="number" class="input-field" id="adxPeriod" value="14" min="5" max="30" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">ADX Weak Threshold</label>
-                        <input type="number" class="input-field" id="adxWeak" value="25" min="15" max="30" step="1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">ADX Skip Threshold</label>
-                        <input type="number" class="input-field" id="adxSkip" value="30" min="25" max="40" step="1">
                     </div>
                     <div class="input-group">
                         <label class="input-label">Duration Type</label>
@@ -1435,21 +1401,9 @@
                 return;
             }
 
-            const fractalsFilter = document.getElementById('fractalsFilter').checked;
-            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
-            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
-            
-            if (fractalsFilter) {
-                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
-            }
-            
-            if (adxFilter) {
-                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
-            }
             
             let minCandles = Infinity;
             let activeCount = 0;
@@ -1651,266 +1605,10 @@
             logActivity('[ALTERNATOR] All markets reset to BUY (CALL) starting position', 'success');
         }
 
-        // Calculate Williams Fractals
-        function calculateWilliamsFractals(candles, span = 5) {
-            if (candles.length < span) return { upFractals: [], downFractals: [] };
-
-            const upFractals = [];
-            const downFractals = [];
-            const centerIndex = Math.floor(span / 2);
-
-            for (let i = centerIndex; i < candles.length - centerIndex; i++) {
-                const centerCandle = candles[i];
-                
-                // Check for Up-fractal (potential top)
-                let isUpFractal = true;
-                for (let j = -centerIndex; j <= centerIndex; j++) {
-                    if (j === 0) continue;
-                    if (candles[i + j].high >= centerCandle.high) {
-                        isUpFractal = false;
-                        break;
-                    }
-                }
-                
-                if (isUpFractal) {
-                    upFractals.push({
-                        index: i,
-                        price: centerCandle.high,
-                        time: centerCandle.time
-                    });
-                }
-                
-                // Check for Down-fractal (potential bottom)
-                let isDownFractal = true;
-                for (let j = -centerIndex; j <= centerIndex; j++) {
-                    if (j === 0) continue;
-                    if (candles[i + j].low <= centerCandle.low) {
-                        isDownFractal = false;
-                        break;
-                    }
-                }
-                
-                if (isDownFractal) {
-                    downFractals.push({
-                        index: i,
-                        price: centerCandle.low,
-                        time: centerCandle.time
-                    });
-                }
-            }
-
-            return { upFractals, downFractals };
-        }
-
-        // Check for Fractal Rejection (Bullish - Buy Signal)
-        function checkFractalBullishRejection(candles, span, rejectionPercent) {
-            if (candles.length < span + 2) return false;
-
-            const fractals = calculateWilliamsFractals(candles, span);
-            
-            if (fractals.downFractals.length === 0) return false;
-
-            // Get the most recent down-fractal
-            const lastDownFractal = fractals.downFractals[fractals.downFractals.length - 1];
-            
-            // Check if fractal is recent enough (within last few candles)
-            const fractalAge = candles.length - 1 - lastDownFractal.index;
-            if (fractalAge > Math.floor(span / 2) + 2) return false;
-
-            // Get candles after the fractal
-            const candlesAfterFractal = candles.slice(lastDownFractal.index + 1);
-            
-            if (candlesAfterFractal.length === 0) return false;
-
-            // Check if price rejected the fractal low (closed above it)
-            const lastCandle = candlesAfterFractal[candlesAfterFractal.length - 1];
-            const rejectionThreshold = lastDownFractal.price * (1 + rejectionPercent / 100);
-            
-            return lastCandle.close > rejectionThreshold;
-        }
-
-        // Check for Fractal Rejection (Bearish - Sell Signal)
-        function checkFractalBearishRejection(candles, span, rejectionPercent) {
-            if (candles.length < span + 2) return false;
-
-            const fractals = calculateWilliamsFractals(candles, span);
-            
-            if (fractals.upFractals.length === 0) return false;
-
-            // Get the most recent up-fractal
-            const lastUpFractal = fractals.upFractals[fractals.upFractals.length - 1];
-            
-            // Check if fractal is recent enough (within last few candles)
-            const fractalAge = candles.length - 1 - lastUpFractal.index;
-            if (fractalAge > Math.floor(span / 2) + 2) return false;
-
-            // Get candles after the fractal
-            const candlesAfterFractal = candles.slice(lastUpFractal.index + 1);
-            
-            if (candlesAfterFractal.length === 0) return false;
-
-            // Check if price rejected the fractal high (closed below it)
-            const lastCandle = candlesAfterFractal[candlesAfterFractal.length - 1];
-            const rejectionThreshold = lastUpFractal.price * (1 - rejectionPercent / 100);
-            
-            return lastCandle.close < rejectionThreshold;
-        }
-
-        // Calculate True Range
-        function calculateTrueRange(candles) {
-            const tr = [];
-            for (let i = 1; i < candles.length; i++) {
-                const high = candles[i].high;
-                const low = candles[i].low;
-                const prevClose = candles[i - 1].close;
-                
-                const trueRange = Math.max(
-                    high - low,
-                    Math.abs(high - prevClose),
-                    Math.abs(low - prevClose)
-                );
-                
-                tr.push(trueRange);
-            }
-            return tr;
-        }
-
-        // Calculate Directional Movement
-        function calculateDirectionalMovement(candles) {
-            const plusDM = [];
-            const minusDM = [];
-            
-            for (let i = 1; i < candles.length; i++) {
-                const highDiff = candles[i].high - candles[i - 1].high;
-                const lowDiff = candles[i - 1].low - candles[i].low;
-                
-                let plusDMValue = 0;
-                let minusDMValue = 0;
-                
-                if (highDiff > lowDiff && highDiff > 0) {
-                    plusDMValue = highDiff;
-                }
-                
-                if (lowDiff > highDiff && lowDiff > 0) {
-                    minusDMValue = lowDiff;
-                }
-                
-                plusDM.push(plusDMValue);
-                minusDM.push(minusDMValue);
-            }
-            
-            return { plusDM, minusDM };
-        }
-
-        // Calculate Smoothed Average (Wilder's smoothing)
-        function calculateSmoothedAverage(values, period) {
-            if (values.length < period) return [];
-            
-            const smoothed = [];
-            
-            // First smoothed value is simple average
-            let sum = 0;
-            for (let i = 0; i < period; i++) {
-                sum += values[i];
-            }
-            smoothed.push(sum / period);
-            
-            // Subsequent values use Wilder's smoothing
-            for (let i = period; i < values.length; i++) {
-                const newValue = (smoothed[smoothed.length - 1] * (period - 1) + values[i]) / period;
-                smoothed.push(newValue);
-            }
-            
-            return smoothed;
-        }
-
-        // Calculate ADX (Average Directional Index)
-        function calculateADX(candles, period = 14) {
-            if (candles.length < period + 1) return [];
-
-            const tr = calculateTrueRange(candles);
-            const { plusDM, minusDM } = calculateDirectionalMovement(candles);
-            
-            // Smooth TR, +DM, and -DM
-            const smoothedTR = calculateSmoothedAverage(tr, period);
-            const smoothedPlusDM = calculateSmoothedAverage(plusDM, period);
-            const smoothedMinusDM = calculateSmoothedAverage(minusDM, period);
-            
-            if (smoothedTR.length === 0) return [];
-            
-            // Calculate +DI and -DI
-            const plusDI = [];
-            const minusDI = [];
-            
-            for (let i = 0; i < smoothedTR.length; i++) {
-                if (smoothedTR[i] !== 0) {
-                    plusDI.push((smoothedPlusDM[i] / smoothedTR[i]) * 100);
-                    minusDI.push((smoothedMinusDM[i] / smoothedTR[i]) * 100);
-                } else {
-                    plusDI.push(0);
-                    minusDI.push(0);
-                }
-            }
-            
-            // Calculate DX (Directional Index)
-            const dx = [];
-            for (let i = 0; i < plusDI.length; i++) {
-                const diSum = plusDI[i] + minusDI[i];
-                if (diSum !== 0) {
-                    dx.push((Math.abs(plusDI[i] - minusDI[i]) / diSum) * 100);
-                } else {
-                    dx.push(0);
-                }
-            }
-            
-            // Calculate ADX (smoothed DX)
-            const adx = calculateSmoothedAverage(dx, period);
-            
-            return adx;
-        }
-
-        // Check ADX Signal
-        function checkADXSignal(candles, period, weakThreshold, skipThreshold) {
-            if (candles.length < period + 2) return { buy: false, sell: false, skip: false };
-
-            const adxValues = calculateADX(candles, period);
-            
-            if (adxValues.length < 2) return { buy: false, sell: false, skip: false };
-
-            const currentADX = adxValues[adxValues.length - 1];
-            const previousADX = adxValues[adxValues.length - 2];
-
-            // Skip trades if ADX is too strong (trending market)
-            if (currentADX > skipThreshold) {
-                return { buy: false, sell: false, skip: true, currentADX };
-            }
-
-            // Check for weak trend (ranging conditions)
-            const isWeakTrend = currentADX < weakThreshold;
-            
-            // Check for decreasing ADX (momentum fading)
-            const isDecreasing = currentADX < previousADX;
-
-            // Both conditions must be true for reversal setup
-            const reversalSetup = isWeakTrend && isDecreasing;
-
-            return { 
-                buy: reversalSetup, 
-                sell: reversalSetup, 
-                skip: false,
-                currentADX,
-                previousADX,
-                isWeakTrend,
-                isDecreasing
-            };
-        }
-
         // Load saved settings
         function loadSettings() {
             const savedToken = sessionStorage.getItem('derivToken');
             const savedMarkets = sessionStorage.getItem('activeMarkets');
-            const savedFractalsFilter = sessionStorage.getItem('fractalsFilter');
-            const savedADXFilter = sessionStorage.getItem('adxFilter');
             const savedZeroFilter = sessionStorage.getItem('zeroClosingFilter');
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedOneCandleFilter = sessionStorage.getItem('oneCandleFilter');
@@ -1922,11 +1620,6 @@
             const savedStake = sessionStorage.getItem('stakeAmount');
             const savedStopLoss = sessionStorage.getItem('stopLoss');
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
-            const savedFractalsSpan = sessionStorage.getItem('fractalsSpan');
-            const savedFractalRejection = sessionStorage.getItem('fractalRejection');
-            const savedADXPeriod = sessionStorage.getItem('adxPeriod');
-            const savedADXWeak = sessionStorage.getItem('adxWeak');
-            const savedADXSkip = sessionStorage.getItem('adxSkip');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
@@ -1945,14 +1638,6 @@
 
             if (savedMarkets) {
                 activeMarkets = JSON.parse(savedMarkets);
-            }
-
-            if (savedFractalsFilter) {
-                document.getElementById('fractalsFilter').checked = savedFractalsFilter === 'true';
-            }
-
-            if (savedADXFilter) {
-                document.getElementById('adxFilter').checked = savedADXFilter === 'true';
             }
 
             if (savedZeroFilter) {
@@ -1998,11 +1683,6 @@
             if (savedStake) document.getElementById('stakeAmount').value = savedStake;
             if (savedStopLoss) document.getElementById('stopLoss').value = savedStopLoss;
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
-            if (savedFractalsSpan) document.getElementById('fractalsSpan').value = savedFractalsSpan;
-            if (savedFractalRejection) document.getElementById('fractalRejection').value = savedFractalRejection;
-            if (savedADXPeriod) document.getElementById('adxPeriod').value = savedADXPeriod;
-            if (savedADXWeak) document.getElementById('adxWeak').value = savedADXWeak;
-            if (savedADXSkip) document.getElementById('adxSkip').value = savedADXSkip;
             if (savedDurationType) setDurationType(savedDurationType);
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
@@ -2042,8 +1722,6 @@
             try {
                 sessionStorage.setItem('derivToken', document.getElementById('apiToken').value);
                 sessionStorage.setItem('activeMarkets', JSON.stringify(activeMarkets));
-                sessionStorage.setItem('fractalsFilter', document.getElementById('fractalsFilter').checked);
-                sessionStorage.setItem('adxFilter', document.getElementById('adxFilter').checked);
                 sessionStorage.setItem('zeroClosingFilter', document.getElementById('zeroClosingFilter').checked);
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
                 sessionStorage.setItem('oneCandleFilter', document.getElementById('oneCandleFilter').checked);
@@ -2055,11 +1733,6 @@
                 sessionStorage.setItem('stakeAmount', document.getElementById('stakeAmount').value);
                 sessionStorage.setItem('stopLoss', document.getElementById('stopLoss').value);
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
-                sessionStorage.setItem('fractalsSpan', document.getElementById('fractalsSpan').value);
-                sessionStorage.setItem('fractalRejection', document.getElementById('fractalRejection').value);
-                sessionStorage.setItem('adxPeriod', document.getElementById('adxPeriod').value);
-                sessionStorage.setItem('adxWeak', document.getElementById('adxWeak').value);
-                sessionStorage.setItem('adxSkip', document.getElementById('adxSkip').value);
                 sessionStorage.setItem('durationType', getDurationType());
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
@@ -2166,21 +1839,9 @@
 
             updateCandleCounter();
             
-            const fractalsFilter = document.getElementById('fractalsFilter').checked;
-            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
-            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
-            
-            if (fractalsFilter) {
-                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
-            }
-            
-            if (adxFilter) {
-                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
-            }
             
             if (isAutoTrading && candleData[symbol].length >= requiredCandles) {
                 checkForSignals(symbol);
@@ -2676,23 +2337,11 @@
             });
         }
 
-        // Check for trading signals with all filters + ALTERNATOR MODE + FRACTALS + ADX
+        // Check for trading signals with all filters + ALTERNATOR MODE
         function checkForSignals(symbol) {
-            const fractalsFilter = document.getElementById('fractalsFilter').checked;
-            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
-            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
-            
-            if (fractalsFilter) {
-                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
-            }
-            
-            if (adxFilter) {
-                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
-            }
             
             if (candleData[symbol].length < requiredCandles) return;
 
@@ -2719,53 +2368,12 @@
             const minUpperWickBuy = parseFloat(document.getElementById('minUpperWickBuy').value) / 100;
             const minLowerWickSell = parseFloat(document.getElementById('minLowerWickSell').value) / 100;
 
-            let fractalSignal = { buy: false, sell: false };
-            let adxSignal = { buy: false, sell: false, skip: false };
-
-            // Check Williams Fractals if enabled
-            if (fractalsFilter && candles.length >= fractalsSpan + 2) {
-                const fractalRejection = parseFloat(document.getElementById('fractalRejection').value);
-                fractalSignal.buy = checkFractalBullishRejection(candles, fractalsSpan, fractalRejection);
-                fractalSignal.sell = checkFractalBearishRejection(candles, fractalsSpan, fractalRejection);
-            }
-
-            // Check ADX if enabled
-            if (adxFilter && candles.length >= adxPeriod + 2) {
-                const adxWeak = parseFloat(document.getElementById('adxWeak').value);
-                const adxSkip = parseFloat(document.getElementById('adxSkip').value);
-                adxSignal = checkADXSignal(candles, adxPeriod, adxWeak, adxSkip);
-                
-                // Skip trading if ADX indicates strong trend
-                if (adxSignal.skip) {
-                    return;
-                }
-            }
-
             // ONE CANDLE MODE
             if (oneCandleFilter) {
                 const buySignal = checkOneCandleBuy(lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minLowerWickBuy, minUpperWickBuy);
                 if (buySignal) {
                     let shouldTrade = true;
-                    let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
-
-                    // Williams Fractals Filter
-                    if (fractalsFilter) {
-                        if (!fractalSignal.buy) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push('Fractals: Bullish reversal at down-fractal');
-                        }
-                    }
-
-                    // ADX Filter
-                    if (shouldTrade && adxFilter) {
-                        if (!adxSignal.buy) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
-                        }
-                    }
 
                     // ALTERNATOR MODE: Aggressive enforcement
                     if (shouldTrade && isAlternatorMode) {
@@ -2774,14 +2382,12 @@
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
                             return;
                         }
-                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
 
                     if (shouldTrade) {
                         const patternName = reverseCandleFilter ? 'Reverse One Candle Buy' : 'One Candle Buy';
                         const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
-                        const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
-                        addSignal(symbol, `${signalText}${info}`);
+                        addSignal(symbol, signalText);
                         executeTrade(symbol, tradeType, candleKey);
                     }
                 }
@@ -2789,26 +2395,7 @@
                 const sellSignal = checkOneCandleSell(lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minUpperWickSell, minLowerWickSell);
                 if (sellSignal) {
                     let shouldTrade = true;
-                    let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
-
-                    // Williams Fractals Filter
-                    if (fractalsFilter) {
-                        if (!fractalSignal.sell) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push('Fractals: Bearish reversal at up-fractal');
-                        }
-                    }
-
-                    // ADX Filter
-                    if (shouldTrade && adxFilter) {
-                        if (!adxSignal.sell) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
-                        }
-                    }
 
                     // ALTERNATOR MODE: Aggressive enforcement
                     if (shouldTrade && isAlternatorMode) {
@@ -2817,14 +2404,12 @@
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
                             return;
                         }
-                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
 
                     if (shouldTrade) {
                         const patternName = reverseCandleFilter ? 'Reverse One Candle Sell' : 'One Candle Sell';
                         const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
-                        const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
-                        addSignal(symbol, `${signalText}${info}`);
+                        addSignal(symbol, signalText);
                         executeTrade(symbol, tradeType, candleKey);
                     }
                 }
@@ -2839,26 +2424,7 @@
                 const buySignal = checkTweezersBottom(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minLowerWickBuy, minUpperWickBuy, matchingDiffBuy);
                 if (buySignal) {
                     let shouldTrade = true;
-                    let filterInfo = [];
                     let tradeType = isReverseMode ? 'PUT' : 'CALL';
-
-                    // Williams Fractals Filter
-                    if (fractalsFilter) {
-                        if (!fractalSignal.buy) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push('Fractals: Bullish reversal at down-fractal');
-                        }
-                    }
-
-                    // ADX Filter
-                    if (shouldTrade && adxFilter) {
-                        if (!adxSignal.buy) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
-                        }
-                    }
 
                     // ALTERNATOR MODE: Aggressive enforcement
                     if (shouldTrade && isAlternatorMode) {
@@ -2867,14 +2433,12 @@
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: BUY signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
                             return;
                         }
-                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
 
                     if (shouldTrade) {
                         const patternName = reverseCandleFilter ? 'Reverse Tweezers Bottom' : 'Tweezers Bottom';
                         const signalText = isReverseMode ? `${patternName} SELL (REVERSED)` : `${patternName} BUY`;
-                        const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
-                        addSignal(symbol, `${signalText}${info}`);
+                        addSignal(symbol, signalText);
                         executeTrade(symbol, tradeType, candleKey);
                     }
                 }
@@ -2882,26 +2446,7 @@
                 const sellSignal = checkTweezersTop(prevCandle, lastCandle, zeroClosingFilter, ignoreHeightFilter, reverseCandleFilter, minUpperWickSell, minLowerWickSell, matchingDiffSell);
                 if (sellSignal) {
                     let shouldTrade = true;
-                    let filterInfo = [];
                     let tradeType = isReverseMode ? 'CALL' : 'PUT';
-
-                    // Williams Fractals Filter
-                    if (fractalsFilter) {
-                        if (!fractalSignal.sell) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push('Fractals: Bearish reversal at up-fractal');
-                        }
-                    }
-
-                    // ADX Filter
-                    if (shouldTrade && adxFilter) {
-                        if (!adxSignal.sell) {
-                            shouldTrade = false;
-                        } else {
-                            filterInfo.push(`ADX: Weak trend (${adxSignal.currentADX.toFixed(2)}) + Decreasing momentum`);
-                        }
-                    }
 
                     // ALTERNATOR MODE: Aggressive enforcement
                     if (shouldTrade && isAlternatorMode) {
@@ -2910,14 +2455,12 @@
                             logActivity(`[ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal ignored.`, 'warning');
                             return;
                         }
-                        filterInfo.push(`Alternator: ${expectedType === 'CALL' ? 'BUY' : 'SELL'} enforced`);
                     }
 
                     if (shouldTrade) {
                         const patternName = reverseCandleFilter ? 'Reverse Tweezers Top' : 'Tweezers Top';
                         const signalText = isReverseMode ? `${patternName} BUY (REVERSED)` : `${patternName} SELL`;
-                        const info = filterInfo.length > 0 ? ` [${filterInfo.join(', ')}]` : '';
-                        addSignal(symbol, `${signalText}${info}`);
+                        addSignal(symbol, signalText);
                         executeTrade(symbol, tradeType, candleKey);
                     }
                 }
@@ -3300,21 +2843,9 @@
             const container = document.getElementById('signalsContainer');
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
-            const fractalsFilter = document.getElementById('fractalsFilter').checked;
-            const adxFilter = document.getElementById('adxFilter').checked;
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            const fractalsSpan = parseInt(document.getElementById('fractalsSpan').value);
-            const adxPeriod = parseInt(document.getElementById('adxPeriod').value);
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
-            
-            if (fractalsFilter) {
-                requiredCandles = Math.max(requiredCandles, fractalsSpan + 2);
-            }
-            
-            if (adxFilter) {
-                requiredCandles = Math.max(requiredCandles, adxPeriod + 2);
-            }
             
             logActivity('Auto trading started', 'success');
             logActivity(`Activation time set: ${new Date(activation_time * 1000).toLocaleTimeString()}`, 'info');
@@ -3324,16 +2855,6 @@
             
             const activeFilters = [];
             if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
-            if (fractalsFilter) {
-                const span = document.getElementById('fractalsSpan').value;
-                const rejection = document.getElementById('fractalRejection').value;
-                activeFilters.push(`Williams Fractals (Span: ${span}, Rejection: ${rejection}%) - Buy: Down-fractal rejection, Sell: Up-fractal rejection`);
-            }
-            if (adxFilter) {
-                const weak = document.getElementById('adxWeak').value;
-                const skip = document.getElementById('adxSkip').value;
-                activeFilters.push(`ADX Filter (Period: ${adxPeriod}, Weak: <${weak}, Skip: >${skip}) - Buy/Sell: ADX<${weak} + Decreasing`);
-            }
             if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
             if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
             if (document.getElementById('reverseCandleFilter').checked) activeFilters.push('Reverse Candle');
@@ -3349,8 +2870,6 @@
             logActivity('✅ Floating browser fix: Race condition prevention ACTIVE', 'success');
             logActivity('✅ Double-tap clear history: ENABLED', 'success');
             logActivity('✅ Alternator Mode: Per-market enforcement ACTIVE', 'success');
-            logActivity('✅ Williams Fractals Filter: Reversal pattern detection ENABLED', 'success');
-            logActivity('✅ ADX Filter: Weak trend + momentum fade confirmation ENABLED', 'success');
 
             updateCandleCounter();
             subscribeToActiveMarkets();
@@ -3515,29 +3034,6 @@
         });
 
         // Filter change listeners
-        document.getElementById('fractalsFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('fractalsFilter').checked;
-            const span = document.getElementById('fractalsSpan').value;
-            const rejection = document.getElementById('fractalRejection').value;
-            logActivity(`Williams Fractals filter ${enabled ? `enabled (Span: ${span}, Rejection: ${rejection}%, Buy: Down-fractal rejection, Sell: Up-fractal rejection)` : 'disabled'}`);
-            if (isAutoTrading) {
-                updateCandleCounter();
-            }
-            saveSettings();
-        });
-
-        document.getElementById('adxFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('adxFilter').checked;
-            const period = document.getElementById('adxPeriod').value;
-            const weak = document.getElementById('adxWeak').value;
-            const skip = document.getElementById('adxSkip').value;
-            logActivity(`ADX filter ${enabled ? `enabled (Period: ${period}, Weak: <${weak}, Skip: >${skip})` : 'disabled'}`);
-            if (isAutoTrading) {
-                updateCandleCounter();
-            }
-            saveSettings();
-        });
-
         document.getElementById('zeroClosingFilter').addEventListener('change', () => {
             const enabled = document.getElementById('zeroClosingFilter').checked;
             logActivity(`Zero closing filter (Perfect 0) ${enabled ? 'enabled' : 'disabled'}`);
@@ -3621,37 +3117,6 @@
 
         document.getElementById('takeProfit').addEventListener('change', () => {
             logActivity(`Take profit updated to ${document.getElementById('takeProfit').value}`);
-            saveSettings();
-        });
-
-        document.getElementById('fractalsSpan').addEventListener('change', () => {
-            logActivity(`Fractals span updated to ${document.getElementById('fractalsSpan').value} candles`);
-            if (isAutoTrading && document.getElementById('fractalsFilter').checked) {
-                updateCandleCounter();
-            }
-            saveSettings();
-        });
-
-        document.getElementById('fractalRejection').addEventListener('change', () => {
-            logActivity(`Fractal rejection threshold updated to ${document.getElementById('fractalRejection').value}%`);
-            saveSettings();
-        });
-
-        document.getElementById('adxPeriod').addEventListener('change', () => {
-            logActivity(`ADX period updated to ${document.getElementById('adxPeriod').value} candles`);
-            if (isAutoTrading && document.getElementById('adxFilter').checked) {
-                updateCandleCounter();
-            }
-            saveSettings();
-        });
-
-        document.getElementById('adxWeak').addEventListener('change', () => {
-            logActivity(`ADX weak threshold updated to ${document.getElementById('adxWeak').value}`);
-            saveSettings();
-        });
-
-        document.getElementById('adxSkip').addEventListener('change', () => {
-            logActivity(`ADX skip threshold updated to ${document.getElementById('adxSkip').value}`);
             saveSettings();
         });
 
@@ -3831,8 +3296,8 @@
         });
 
         // Log system information
-        logActivity(`Browser: ${navigator.userAgent}`, 'info');
-        logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
+           logActivity(`Browser: ${navigator.userAgent}`, 'info');
+           logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
 
         // Log startup complete
         setTimeout(() => {
@@ -3842,11 +3307,7 @@
             logActivity('✅ Duration Type: Radio buttons implemented', 'success');
             logActivity('✅ Clear History: Double-tap button implemented', 'success');
             logActivity('✅ ALTERNATOR MODE: Per-market BUY-SELL-BUY enforcement ENABLED', 'success');
-            logActivity('✅ WILLIAMS FRACTALS FILTER: Reversal pattern detection ENABLED', 'success');
-            logActivity('✅ ADX FILTER: Weak trend + momentum fade confirmation ENABLED', 'success');
-            logActivity('Features: Williams Fractals, ADX, One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
-            logActivity('Williams Fractals: Buy = Down-fractal rejection, Sell = Up-fractal rejection', 'success');
-            logActivity('ADX Filter: Buy/Sell = ADX<Weak threshold + Decreasing momentum', 'success');
+            logActivity('Features: One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
             logActivity('Trade History: All signals will now appear in history', 'success');
             logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
