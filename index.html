@@ -1059,16 +1059,6 @@
             background: rgba(0, 212, 255, 0.05);
             border-radius: 5px;
         }
-
-        .refresh-indicator {
-            text-align: center;
-            font-size: 11px;
-            color: #9b59b6;
-            margin-top: 5px;
-            padding: 6px;
-            background: rgba(155, 89, 182, 0.1);
-            border-radius: 5px;
-        }
     </style>
 </head>
 <body>
@@ -1110,10 +1100,6 @@
             <div class="timer-display hidden" id="timerDisplay">
                 <div class="timer-label">Session Time</div>
                 <div class="timer-value" id="timerValue">00:00:00</div>
-            </div>
-            
-            <div class="refresh-indicator hidden" id="refreshIndicator">
-                Next refresh in: <span id="refreshTimer">--:--:--</span>
             </div>
         </div>
 
@@ -1180,13 +1166,6 @@
                         <span class="filter-label">Reverse Candle</span>
                         <label class="toggle-switch">
                             <input type="checkbox" id="reverseCandleFilter">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div class="filter-item">
-                        <span class="filter-label">Auto Refresh Browser</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="autoRefreshFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -1292,10 +1271,6 @@
                     <div class="input-group">
                         <label class="input-label">Matching Diff % (Sell)</label>
                         <input type="number" class="input-field" id="matchingDiffSell" value="0.3" min="0" max="5" step="0.1">
-                    </div>
-                    <div class="input-group">
-                        <label class="input-label">Auto Refresh (Hours)</label>
-                        <input type="number" class="input-field" id="refreshInterval" value="1" min="0.1" max="24" step="0.1">
                     </div>
                 </div>
 
@@ -1446,11 +1421,6 @@
         let maxReconnectAttempts = 10;
         let reconnectTimeout = null;
         let wasAutoTradingBeforeDisconnect = false;
-
-        // Auto-refresh variables
-        let autoRefreshTimer = null;
-        let refreshCountdownTimer = null;
-        let nextRefreshTime = null;
 
         // Clear history double-tap state
         let clearHistoryConfirmState = false;
@@ -1987,10 +1957,10 @@
 
             if (barrierCalculationQueue.length > 0) {
                 logActivity(`Starting barrier calculation for ${barrierCalculationQueue.length} contracts...`, 'info');
-                return processBarrierCalculationQueue(); // RETURN the promise
+                return processBarrierCalculationQueue();
             } else {
                 logActivity('No supported symbols active for Higher/Lower contracts', 'warning');
-                return Promise.resolve(); // Return resolved promise if nothing to do
+                return Promise.resolve();
             }
         }
 
@@ -2080,93 +2050,6 @@
             }
         }
 
-        // Auto-refresh functions
-        function startAutoRefresh() {
-            const refreshInterval = parseFloat(document.getElementById('refreshInterval').value);
-            const intervalMs = refreshInterval * 60 * 60 * 1000;
-            
-            nextRefreshTime = Date.now() + intervalMs;
-            
-            if (autoRefreshTimer) clearTimeout(autoRefreshTimer);
-            autoRefreshTimer = setTimeout(() => {
-                performAutoRefresh();
-            }, intervalMs);
-            
-            if (refreshCountdownTimer) clearInterval(refreshCountdownTimer);
-            refreshCountdownTimer = setInterval(updateRefreshCountdown, 1000);
-            
-            document.getElementById('refreshIndicator').classList.remove('hidden');
-            logActivity(`Auto-refresh enabled: Browser will refresh every ${refreshInterval} hour(s)`, 'success');
-        }
-
-        function stopAutoRefresh() {
-            if (autoRefreshTimer) {
-                clearTimeout(autoRefreshTimer);
-                autoRefreshTimer = null;
-            }
-            if (refreshCountdownTimer) {
-                clearInterval(refreshCountdownTimer);
-                refreshCountdownTimer = null;
-            }
-            nextRefreshTime = null;
-            document.getElementById('refreshIndicator').classList.add('hidden');
-            logActivity('Auto-refresh disabled', 'info');
-        }
-
-        function updateRefreshCountdown() {
-            if (!nextRefreshTime) return;
-            
-            const remaining = nextRefreshTime - Date.now();
-            if (remaining <= 0) {
-                document.getElementById('refreshTimer').textContent = '00:00:00';
-                return;
-            }
-            
-            const hours = Math.floor(remaining / 3600000);
-            const minutes = Math.floor((remaining % 3600000) / 60000);
-            const seconds = Math.floor((remaining % 60000) / 1000);
-            
-            document.getElementById('refreshTimer').textContent = 
-                `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        }
-
-        function performAutoRefresh() {
-            logActivity('Auto-refresh triggered - Reloading browser...', 'warning');
-            
-            localStorage.setItem('autoRefreshActive', 'true');
-            localStorage.setItem('refreshTimestamp', Date.now().toString());
-            
-            saveSettings();
-            
-            setTimeout(() => {
-                window.location.reload();
-            }, 1000);
-        }
-
-        function handlePostRefreshRecovery() {
-            const wasAutoRefresh = localStorage.getItem('autoRefreshActive');
-            const refreshTimestamp = localStorage.getItem('refreshTimestamp');
-            
-            if (wasAutoRefresh === 'true') {
-                localStorage.removeItem('autoRefreshActive');
-                localStorage.removeItem('refreshTimestamp');
-                
-                const timeSinceRefresh = refreshTimestamp ? Date.now() - parseInt(refreshTimestamp) : 0;
-                
-                logActivity('Browser auto-refreshed successfully', 'success');
-                logActivity(`Time since refresh: ${Math.floor(timeSinceRefresh / 1000)}s`, 'info');
-                
-                const autoRefreshEnabled = document.getElementById('autoRefreshFilter').checked;
-                if (autoRefreshEnabled) {
-                    setTimeout(() => {
-                        if (document.getElementById('autoRefreshFilter').checked) {
-                            startAutoRefresh();
-                        }
-                    }, 2000);
-                }
-            }
-        }
-
         // Get duration type value from radio buttons
         function getDurationType() {
             const radios = document.getElementsByName('durationType');
@@ -2235,7 +2118,6 @@
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedOneCandleFilter = sessionStorage.getItem('oneCandleFilter');
             const savedReverseCandleFilter = sessionStorage.getItem('reverseCandleFilter');
-            const savedAutoRefreshFilter = sessionStorage.getItem('autoRefreshFilter');
             const savedReverseMode = sessionStorage.getItem('reverseMode');
             const savedAlternatorMode = sessionStorage.getItem('alternatorMode');
             const savedAlternatorStates = sessionStorage.getItem('alternatorStates');
@@ -2253,7 +2135,6 @@
             const savedMinLowerWickSell = sessionStorage.getItem('minLowerWickSell');
             const savedMatchingDiffBuy = sessionStorage.getItem('matchingDiffBuy');
             const savedMatchingDiffSell = sessionStorage.getItem('matchingDiffSell');
-            const savedRefreshInterval = sessionStorage.getItem('refreshInterval');
             const savedTradeHistory = sessionStorage.getItem('tradeHistory');
             const savedStats = sessionStorage.getItem('tradeStats');
 
@@ -2279,10 +2160,6 @@
 
             if (savedReverseCandleFilter) {
                 document.getElementById('reverseCandleFilter').checked = savedReverseCandleFilter === 'true';
-            }
-
-            if (savedAutoRefreshFilter) {
-                document.getElementById('autoRefreshFilter').checked = savedAutoRefreshFilter === 'true';
             }
 
             if (savedReverseMode) {
@@ -2329,7 +2206,6 @@
             if (savedMinLowerWickSell) document.getElementById('minLowerWickSell').value = savedMinLowerWickSell;
             if (savedMatchingDiffBuy) document.getElementById('matchingDiffBuy').value = savedMatchingDiffBuy;
             if (savedMatchingDiffSell) document.getElementById('matchingDiffSell').value = savedMatchingDiffSell;
-            if (savedRefreshInterval) document.getElementById('refreshInterval').value = savedRefreshInterval;
 
             if (savedTradeHistory) {
                 try {
@@ -2365,7 +2241,6 @@
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
                 sessionStorage.setItem('oneCandleFilter', document.getElementById('oneCandleFilter').checked);
                 sessionStorage.setItem('reverseCandleFilter', document.getElementById('reverseCandleFilter').checked);
-                sessionStorage.setItem('autoRefreshFilter', document.getElementById('autoRefreshFilter').checked);
                 sessionStorage.setItem('reverseMode', isReverseMode);
                 sessionStorage.setItem('alternatorMode', isAlternatorMode);
                 sessionStorage.setItem('alternatorStates', JSON.stringify(marketAlternatorState));
@@ -2383,7 +2258,6 @@
                 sessionStorage.setItem('minLowerWickSell', document.getElementById('minLowerWickSell').value);
                 sessionStorage.setItem('matchingDiffBuy', document.getElementById('matchingDiffBuy').value);
                 sessionStorage.setItem('matchingDiffSell', document.getElementById('matchingDiffSell').value);
-                sessionStorage.setItem('refreshInterval', document.getElementById('refreshInterval').value);
                 sessionStorage.setItem('tradeHistory', JSON.stringify(tradeHistory));
                 sessionStorage.setItem('tradeStats', JSON.stringify(tradeStats));
                 sessionStorage.setItem('wasAutoTrading', isAutoTrading);
@@ -2646,7 +2520,7 @@
                 
                 if (isProcessingTicks) {
                     return;
-                }
+             }
                 isProcessingTicks = true;
 
                 const epoch = data.tick.epoch;
@@ -2840,10 +2714,6 @@
                 saveSettings();
                 startSessionTimer();
                 logActivity('Login successful', 'success');
-                
-                if (document.getElementById('autoRefreshFilter').checked) {
-                    startAutoRefresh();
-                }
             } catch (error) {
                 logActivity('Login failed: ' + error.message, 'error');
                 document.getElementById('loginBtn').disabled = false;
@@ -2871,7 +2741,6 @@
             isLoggedIn = false;
             reconnectAttempts = 0;
             stopSessionTimer();
-            stopAutoRefresh();
             updateConnectionBadge('disconnected');
 
             document.getElementById('apiToken').value = '';
@@ -3266,8 +3135,7 @@
                     if (isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
-                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}:
-                            SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
+                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             
@@ -3533,16 +3401,15 @@
                         tradeStats.skipped++;
                         updateStats();
                         saveSettings();
-                        return; // Stop if barrier failed previously
+                        return;
                     }
                     
                     const decimals = getSmartDecimals(symbol);
                     proposal.barrier = barrier > 0 ? `+${barrier.toFixed(decimals)}` : `${barrier.toFixed(decimals)}`;
-                    // Don't log here to save time, just execute!
                 } else {
                     // Fallback: If not calculated yet, trigger calculation for NEXT time, but skip this trade to avoid lag
                     logActivity(`⚠️ Trade skipped: Barrier not ready for ${markets[symbol]}. Calculating now...`, 'warning');
-                    getBarrierForContract(symbol, type); // Trigger calculation in background
+                    getBarrierForContract(symbol, type);
                     tradeStats.skipped++;
                     updateStats();
                     saveSettings();
@@ -3713,7 +3580,7 @@
                     // Step B: Success Check
                     if (missingCount === 0) {
                         logActivity('✅ All barriers successfully calculated! System Armed.', 'success');
-                        break; // Exit loop -> Go to trading
+                        break;
                     }
 
                     // Step C: Retry Logic
@@ -3722,21 +3589,17 @@
                         logActivity(`⚠️ Retry #${attempts-1}: Retrying ${missingCount} failed markets...`, 'warning');
                         logActivity('⏳ Waiting 10s before retry to prevent rate limits...', 'info');
                         
-                        // FIX: Increased delay to 10 seconds as requested
                         await new Promise(r => setTimeout(r, 10000));
                     } else {
                         logActivity(`Starting calculation for ${missingCount} contracts...`, 'info');
                     }
 
-                    // Step D: Run the processor (Processes only the missing ones)
-                    // Note: processBarrierCalculationQueue no longer checks currentSpot, so it won't crash
+                    // Step D: Run the processor
                     try {
                         await processBarrierCalculationQueue();
                     } catch (e) {
                         console.error("Queue error:", e);
                     }
-                    
-                    // Loop repeats...
                 }
                 
                 // Safety: If user stopped bot during the 10s wait
@@ -3748,7 +3611,7 @@
                 }
             }
 
-            // 3. RESUME TRADING (Only runs when 100% successful)
+            // 3. RESUME TRADING
             subscribeToActiveMarkets();
             
             // 4. Update UI
@@ -3783,14 +3646,12 @@
             
             updateCandleCounter();
 
-            // 5. SMART WATCHDOG (Timer Logic)
+            // 5. SMART WATCHDOG
             if (candleWatchdogTimer) clearInterval(candleWatchdogTimer);
             
             candleWatchdogTimer = setInterval(() => {
                 if (!isTimeSynced) return;
 
-                // STRATEGY PROTECTION: If "Zero Closing" is ON, we do NOT force close.
-                // We prioritize accuracy over speed.
                 if (document.getElementById('zeroClosingFilter').checked) {
                     return; 
                 }
@@ -3805,9 +3666,8 @@
                     if (currentMinute[symbol] === undefined) return;
 
                     if (serverMinuteStart > currentMinute[symbol]) {
-                        // HYBRID SPEED SETTINGS
                         const is1HZ = symbol.includes('1HZ') || symbol.includes('1s');
-                        const gracePeriod = is1HZ ? 200 : 1500; // 200ms for 1HZ, 1.5s for others
+                        const gracePeriod = is1HZ ? 200 : 1500;
 
                         if (timeIntoMinute > gracePeriod) {
                             const lastPrice = currentOHLC[symbol].close;
@@ -4045,37 +3905,6 @@
             saveSettings();
         });
 
-        document.getElementById('autoRefreshFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('autoRefreshFilter').checked;
-            
-            if (enabled) {
-                const interval = document.getElementById('refreshInterval').value;
-                logActivity(`Auto-refresh filter enabled (${interval} hour(s))`, 'success');
-                
-                if (isLoggedIn) {
-                    startAutoRefresh();
-                } else {
-                    logActivity('Auto-refresh will start after login', 'info');
-                }
-            } else {
-                logActivity('Auto-refresh filter disabled', 'info');
-                stopAutoRefresh();
-            }
-            
-            saveSettings();
-        });
-
-        document.getElementById('refreshInterval').addEventListener('change', () => {
-            const interval = document.getElementById('refreshInterval').value;
-            logActivity(`Auto-refresh interval updated to ${interval} hour(s)`);
-            saveSettings();
-            
-            if (document.getElementById('autoRefreshFilter').checked && isLoggedIn) {
-                stopAutoRefresh();
-                startAutoRefresh();
-            }
-        });
-
         // Duration type radio button listeners
         document.getElementsByName('durationType').forEach(radio => {
             radio.addEventListener('change', () => {
@@ -4201,8 +4030,6 @@
         });
 
         window.addEventListener('load', () => {
-            handlePostRefreshRecovery();
-            
             const savedToken = sessionStorage.getItem('derivToken');
             const wasAutoTrading = sessionStorage.getItem('wasAutoTrading') === 'true';
             
@@ -4313,7 +4140,8 @@
             logActivity('✅ Alternator Mode: Per-market BUY-SELL-BUY enforcement', 'success');
             logActivity('✅ Trade history: Duplicate prevention enabled', 'success');
             logActivity('✅ Floating browser: Race condition prevention active', 'success');
-            logActivity('Features: One Candle, Zero Closing, Ignore Height, Reverse Candle, Auto-Refresh, Alternator, Higher/Lower', 'success');
+            logActivity('✅ AUTO-REFRESH REMOVED: Feature completely removed from the bot', 'success');
+            logActivity('Features: One Candle, Zero Closing, Ignore Height, Reverse Candle, Alternator, Higher/Lower', 'success');
             logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
             logActivity('Contracts: RISE/FALL (CALL/PUT) or HIGHER/LOWER (CALL/PUT with smart barriers)', 'success');
             logActivity('Signal Flow: Check Already Traded → Validate WS → Mark Traded → Display Signal → Execute Trade', 'success');
