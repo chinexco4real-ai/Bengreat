@@ -1810,7 +1810,7 @@
             });
         }
 
-        // Process barrier calculation queue with visual monitor
+        // UPDATED: Process barrier calculation queue (Removes local price dependency)
         async function processBarrierCalculationQueue() {
             if (isCalculatingBarriers || barrierCalculationQueue.length === 0) {
                 return;
@@ -1840,13 +1840,11 @@
                     const payout = parseFloat(document.getElementById('payoutPercentage').value);
                     const duration = parseInt(document.getElementById('durationValue').value);
                     const durationType = getDurationType();
-                    const currentPrice = currentSpot[symbol];
-
-                    if (!currentPrice) {
-                        throw new Error('No current price available');
-                    }
-
-                    const result = await calculateBarrierForPayout(symbol, contractType, payout, duration, durationType, currentPrice);
+                    
+                    // FIX: REMOVED THE "currentSpot" CHECK
+                    // We pass 0 as the price because the API doesn't need us to tell it the price.
+                    const result = await calculateBarrierForPayout(symbol, contractType, payout, duration, durationType, 0);
+                    
                     calculatedBarriers[symbol] = calculatedBarriers[symbol] || {};
                     calculatedBarriers[symbol][contractType] = result.barrier;
                     
@@ -1910,6 +1908,45 @@
                 barrierCalculationQueue.push({ symbol, contractType, resolve, reject });
                 processBarrierCalculationQueue();
             });
+        }
+
+        // Helper function to queue missing barriers
+        function queueMissingBarriers() {
+            const supportedSymbols = getSupportedSymbolsForHL();
+            const hlDirection = getHLDirection();
+            let missingCount = 0;
+
+            for (const symbol of supportedSymbols) {
+                if (activeMarkets[symbol]) {
+                    if (hlDirection === 'BOTH' || hlDirection === 'HIGHER_ONLY') {
+                        // Check if CALL barrier is missing or failed
+                        if (!calculatedBarriers[symbol] || calculatedBarriers[symbol]['CALL'] === undefined || calculatedBarriers[symbol]['CALL'] === null) {
+                            barrierCalculationQueue.push({
+                                symbol: symbol,
+                                contractType: 'CALL',
+                                resolve: () => {},
+                                reject: () => {}
+                            });
+                            missingCount++;
+                        }
+                    }
+                    
+                    if (hlDirection === 'BOTH' || hlDirection === 'LOWER_ONLY') {
+                        // Check if PUT barrier is missing or failed
+                        if (!calculatedBarriers[symbol] || calculatedBarriers[symbol]['PUT'] === undefined || calculatedBarriers[symbol]['PUT'] === null) {
+                            barrierCalculationQueue.push({
+                                symbol: symbol,
+                                contractType: 'PUT',
+                                resolve: () => {},
+                                reject: () => {}
+                            });
+                            missingCount++;
+                        }
+                    }
+                }
+            }
+
+            return missingCount;
         }
 
         // UPDATED: Recalculate all barriers when payout percentage changes - Now returns Promise
@@ -2494,7 +2531,6 @@
                 ws.onclose = () => {
                     logActivity('WebSocket disconnected', 'error');
                     updateConnectionBadge('disconnected');
-                    
                     if (sessionTimer) {
                         stopSessionTimer();
                         logActivity('Session timer reset due to disconnection', 'warning');
@@ -3230,7 +3266,8 @@
                     if (isAlternatorMode) {
                         const expectedType = getNextAlternatorTradeType(symbol);
                         if (tradeType !== expectedType) {
-                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}: SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
+                            logActivity(`⚠️ [ALTERNATOR BLOCK] ${markets[symbol]}:
+                            SELL signal detected but expecting ${expectedType === 'CALL' ? 'BUY' : 'SELL'}. Signal skipped.`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             
@@ -3618,7 +3655,7 @@
             console.log(`[TABLE UPDATE] Displayed ${displayCount} trades from ${tradeHistory.length} total`);
         }
 
-        // UPDATED: Start auto trading with barrier pre-calculation
+        // UPDATED: Start Auto Trading with 10s Retry Loop
         async function startAutoTrading() {
             if (!isLoggedIn) {
                 logActivity('Please login first', 'error');
@@ -3630,45 +3667,12 @@
                 return;
             }
 
-            const contractType = getContractType();
-            const hlDirection = getHLDirection();
-
-            // UPDATED: Force wait for barrier calculation if using Higher/Lower
-            if (contractType === 'HIGHER_LOWER') {
-                let directionText = 'Both (Higher & Lower)';
-                if (hlDirection === 'HIGHER_ONLY') directionText = 'Higher Only (Buy)';
-                if (hlDirection === 'LOWER_ONLY') directionText = 'Lower Only (Sell)';
-                
-                logActivity(`Direction: ${directionText}`, 'info');
-                logActivity('⏳ Pre-calculating barriers for instant entry... (Please wait)', 'warning');
-                
-                // Disable button while calculating
-                document.getElementById('autoTradeBtn').disabled = true;
-                document.getElementById('autoTradeBtn').textContent = 'Calculating Barriers...';
-                
-                try {
-                    // Calculate and wait
-                    await recalculateAllBarriers();
-                    
-                    logActivity('✅ Barriers ready! Speed entry enabled.', 'success');
-                } catch (error) {
-                    logActivity(`❌ Barrier calculation failed: ${error.message}`, 'error');
-                    document.getElementById('autoTradeBtn').disabled = false;
-                    document.getElementById('autoTradeBtn').textContent = 'Start Auto Trade';
-                    return;
-                }
-                
-                // Re-enable button after calculation
-                document.getElementById('autoTradeBtn').disabled = false;
-            }
-
+            // 1. Initialize State
             isAutoTrading = true;
-            isFirstSignal = true;
-            
             activation_time = Math.floor(Date.now() / 1000);
-            
             processedContracts.clear();
             
+            // Clear chart data
             Object.keys(markets).forEach(symbol => {
                 candleData[symbol] = [];
                 currentOHLC[symbol] = undefined;
@@ -3679,7 +3683,76 @@
             if (isAlternatorMode) {
                 resetAlternatorStates();
             }
+
+            const contractType = getContractType();
+            const hlDirection = getHLDirection();
+
+            // 2. HIGHER/LOWER LOGIC: Persistent Retry Loop
+            if (contractType === 'HIGHER_LOWER') {
+                let directionText = 'Both (Higher & Lower)';
+                if (hlDirection === 'HIGHER_ONLY') directionText = 'Higher Only (Buy)';
+                if (hlDirection === 'LOWER_ONLY') directionText = 'Lower Only (Sell)';
+                logActivity(`Direction: ${directionText}`, 'info');
+                
+                logActivity('⏳ Pausing signals to calculate ALL barriers...', 'warning');
+                
+                // Disable button and show status
+                document.getElementById('autoTradeBtn').disabled = true;
+                document.getElementById('autoTradeBtn').textContent = 'Calibrating...';
+                
+                // Clear old barriers
+                calculatedBarriers = {}; 
+                
+                let attempts = 0;
+                
+                // THE LOOP: Keep retrying until EVERYTHING is successful
+                while (isAutoTrading) {
+                    // Step A: Find which markets are missing/failed
+                    const missingCount = queueMissingBarriers();
+                    
+                    // Step B: Success Check
+                    if (missingCount === 0) {
+                        logActivity('✅ All barriers successfully calculated! System Armed.', 'success');
+                        break; // Exit loop -> Go to trading
+                    }
+
+                    // Step C: Retry Logic
+                    attempts++;
+                    if (attempts > 1) {
+                        logActivity(`⚠️ Retry #${attempts-1}: Retrying ${missingCount} failed markets...`, 'warning');
+                        logActivity('⏳ Waiting 10s before retry to prevent rate limits...', 'info');
+                        
+                        // FIX: Increased delay to 10 seconds as requested
+                        await new Promise(r => setTimeout(r, 10000));
+                    } else {
+                        logActivity(`Starting calculation for ${missingCount} contracts...`, 'info');
+                    }
+
+                    // Step D: Run the processor (Processes only the missing ones)
+                    // Note: processBarrierCalculationQueue no longer checks currentSpot, so it won't crash
+                    try {
+                        await processBarrierCalculationQueue();
+                    } catch (e) {
+                        console.error("Queue error:", e);
+                    }
+                    
+                    // Loop repeats...
+                }
+                
+                // Safety: If user stopped bot during the 10s wait
+                if (!isAutoTrading) {
+                    logActivity('Bot stopped during calculation.', 'warning');
+                    document.getElementById('autoTradeBtn').disabled = false;
+                    document.getElementById('autoTradeBtn').textContent = 'Start Auto Trade';
+                    return;
+                }
+            }
+
+            // 3. RESUME TRADING (Only runs when 100% successful)
+            subscribeToActiveMarkets();
             
+            // 4. Update UI
+            document.getElementById('autoTradeBtn').disabled = false;
             document.getElementById('autoTradeBtn').textContent = 'Stop Auto Trade';
             document.getElementById('autoTradeBtn').className = 'btn btn-danger';
             
@@ -3693,75 +3766,58 @@
             container.innerHTML = '<div class="signal-item"><div class="signal-text">Bot activated. Monitoring markets for signals...</div></div>';
 
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
-            
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
             logActivity('Auto trading started', 'success');
             logActivity(`Activation time set: ${new Date(activation_time * 1000).toLocaleTimeString()}`, 'info');
             logActivity(`Mode: ${oneCandleFilter ? 'ONE CANDLE' : 'TWO CANDLE (Tweezers)'}`, 'info');
-            logActivity(`Contract Type: ${contractType === 'RISE_FALL' ? 'Rise/Fall' : 'Higher/Lower'}`, 'info');
             
-            if (contractType === 'HIGHER_LOWER') {
-                let directionText = 'Both (Higher & Lower)';
-                if (hlDirection === 'HIGHER_ONLY') directionText = 'Higher Only (Buy)';
-                if (hlDirection === 'LOWER_ONLY') directionText = 'Lower Only (Sell)';
-                logActivity(`Direction: ${directionText}`, 'info');
-            }
-            
-            logActivity(`Reverse Mode: ${isReverseMode ? 'ON' : 'OFF'}`, isReverseMode ? 'success' : 'info');
-            logActivity(`Alternator Mode: ${isAlternatorMode ? 'ON - BUY-SELL-BUY pattern enforced per market' : 'OFF'}`, isAlternatorMode ? 'success' : 'info');
-            
+            // Log active filters
             const activeFilters = [];
-            if (oneCandleFilter) activeFilters.push('One Candle Mode (Single candle: Red=Buy, Green=Sell)');
-            if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing (Perfect 0)');
+            if (oneCandleFilter) activeFilters.push('One Candle Mode');
+            if (document.getElementById('zeroClosingFilter').checked) activeFilters.push('Zero Closing');
             if (document.getElementById('ignoreHeightFilter').checked) activeFilters.push('Ignore Height');
             if (document.getElementById('reverseCandleFilter').checked) activeFilters.push('Reverse Candle');
             
-            if (activeFilters.length > 0) {
-                logActivity(`Active filters: ${activeFilters.join(', ')}`, 'info');
-            } else {
-                logActivity('No filters active', 'info');
-            }
+            if (activeFilters.length > 0) logActivity(`Active filters: ${activeFilters.join(', ')}`, 'info');
             
-            logActivity(`Waiting for ${requiredCandles} candle(s) before analyzing`, 'info');
-            logActivity('✅ FULLY FIXED: All CALL/PUT logic corrected', 'success');
-            logActivity('✅ FIXED: Barrier calculation uses CALL/PUT only', 'success');
-            logActivity('✅ FIXED: Signal generation uses CALL/PUT only', 'success');
-            logActivity('✅ Higher/Lower contracts: PRE-CALCULATED barriers for instant entry', 'success');
-            logActivity('✅ SMART AUTO-DETECTION: Market-specific decimal precision enabled', 'success');
-            logActivity('✅ PAYOUT FIX: Correctly converts profit % to total payout %', 'success');
-
             updateCandleCounter();
-            subscribeToActiveMarkets();
 
+            // 5. SMART WATCHDOG (Timer Logic)
             if (candleWatchdogTimer) clearInterval(candleWatchdogTimer);
             
-            let watchdogLastRun = 0;
-            
             candleWatchdogTimer = setInterval(() => {
-                const now = Date.now();
-                
-                if (now - watchdogLastRun < 1000) {
-                    return;
-                }
-                watchdogLastRun = now;
-                
                 if (!isTimeSynced) return;
-                
-                const estimatedServerTime = Date.now() - serverTimeOffset;
-                const currentServerMinute = Math.floor(estimatedServerTime / 1000 / 60) * 60;
+
+                // STRATEGY PROTECTION: If "Zero Closing" is ON, we do NOT force close.
+                // We prioritize accuracy over speed.
+                if (document.getElementById('zeroClosingFilter').checked) {
+                    return; 
+                }
+
+                const now = Date.now();
+                const estimatedServerTime = now - serverTimeOffset;
+                const serverMinuteStart = Math.floor(estimatedServerTime / 1000 / 60) * 60;
+                const timeIntoMinute = estimatedServerTime % 60000;
 
                 Object.keys(activeMarkets).forEach(symbol => {
                     if (!activeMarkets[symbol] || !marketSubscriptions[symbol]) return;
                     if (currentMinute[symbol] === undefined) return;
 
-                    if (currentServerMinute > currentMinute[symbol] + 90) {
-                        const lastPrice = currentOHLC[symbol].close;
-                        logActivity(`⚠️ Forcing candle closure for ${markets[symbol]} (>90s delay)`, 'warning');
-                        finalizeCandle(symbol, currentServerMinute, lastPrice);
+                    if (serverMinuteStart > currentMinute[symbol]) {
+                        // HYBRID SPEED SETTINGS
+                        const is1HZ = symbol.includes('1HZ') || symbol.includes('1s');
+                        const gracePeriod = is1HZ ? 200 : 1500; // 200ms for 1HZ, 1.5s for others
+
+                        if (timeIntoMinute > gracePeriod) {
+                            const lastPrice = currentOHLC[symbol].close;
+                            if (!lastCandleProcessTime[symbol] || (now - lastCandleProcessTime[symbol] > 2000)) {
+                                finalizeCandle(symbol, serverMinuteStart, lastPrice);
+                            }
+                        }
                     }
                 });
-            }, 2000);
+            }, 100);
 
             saveSettings();
         }
@@ -4248,6 +4304,8 @@
             logActivity('✅ PAYOUT FIX: Converts profit % to total payout % (95% profit = 195% total payout)', 'success');
             logActivity('✅ SPEED FIX: Pre-calculates barriers on bot start for instant trade entry', 'success');
             logActivity('✅ SPEED FIX: Skips trades if barrier not ready (calculates in background)', 'success');
+            logActivity('✅ BARRIER FIX: Removed currentSpot dependency - barriers calculate without price check', 'success');
+            logActivity('✅ RETRY FIX: 10-second retry delay for failed barrier calculations', 'success');
             logActivity('✅ NEW: Visual barrier calculation monitor with progress tracking', 'success');
             logActivity('✅ NEW: Real-time barrier calculation status display', 'success');
             logActivity('✅ NEW: Per-market barrier calculation progress indicators', 'success');
@@ -4263,6 +4321,7 @@
             logActivity('Higher/Lower: Supported symbols - Volatility 10/25/50/75/100 (all variants)', 'success');
             logActivity('Higher/Lower: Duration limits - 5-10 ticks, 15-3600 seconds, 1-60 minutes', 'success');
             logActivity('Barrier Calculation: PRE-CALCULATED on bot start for instant entry (no lag)', 'success');
+            logActivity('Barrier Retry: 10-second delay between retry attempts to prevent rate limiting', 'success');
             logActivity('Smart Decimals: Auto-detects correct precision for each market (no more InvalidBarrier)', 'success');
             logActivity('Payout Logic: Input is PROFIT % (e.g., 95%), bot converts to 195% total payout', 'success');
             logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
