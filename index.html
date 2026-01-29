@@ -1271,6 +1271,10 @@
                             </div>
                         </div>
                     </div>
+                    <div class="input-group">
+                        <label class="input-label">SuperTrend Multiplier</label>
+                        <input type="number" class="input-field" id="superTrendMultiplier" value="3" min="0.5" max="10" step="0.5">
+                    </div>
                     <div class="input-group" id="payoutPercentageGroup" style="display: none;">
                         <label class="input-label">Payout % (Profit %)</label>
                         <input type="number" class="input-field" id="payoutPercentage" value="95" min="1" max="99" step="0.1">
@@ -1441,10 +1445,12 @@
          * ✅ Zero Closing, Ignore Height, Reverse Candle filters
          * ✅ Parabolic SAR filter
          * ✅ SuperTrend filter
-         *    - Period: 10, Multiplier: 3
+         *    - Period: 10 (fixed)
+         *    - Multiplier: Adjustable (default: 3, range: 0.5-10)
          *    - BUY: SuperTrend Green + Price above SuperTrend
          *    - SELL: SuperTrend Red + Price below SuperTrend
          *    - Works with all strategies and modes
+         *    - Recalculates automatically when multiplier changes
          * ✅ Reverse Mode & Alternator Mode
          * ✅ Rise/Fall & Higher/Lower contracts
          * ✅ Smart decimal detection for barriers
@@ -2291,6 +2297,7 @@
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
             const savedCandleTimeframe = sessionStorage.getItem('candleTimeframe');
+            const savedSuperTrendMultiplier = sessionStorage.getItem('superTrendMultiplier');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
             const savedMinUpperWickSell = sessionStorage.getItem('minUpperWickSell');
             const savedMinUpperWickBuy = sessionStorage.getItem('minUpperWickBuy');
@@ -2371,6 +2378,7 @@
             if (savedDurationType) setDurationType(savedDurationType);
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
             if (savedCandleTimeframe) setCandleTimeframe(parseInt(savedCandleTimeframe));
+            if (savedSuperTrendMultiplier) document.getElementById('superTrendMultiplier').value = savedSuperTrendMultiplier;
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
             if (savedMinUpperWickSell) document.getElementById('minUpperWickSell').value = savedMinUpperWickSell;
             if (savedMinUpperWickBuy) document.getElementById('minUpperWickBuy').value = savedMinUpperWickBuy;
@@ -2426,6 +2434,7 @@
                 sessionStorage.setItem('durationType', getDurationType());
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
                 sessionStorage.setItem('candleTimeframe', getCandleTimeframe());
+                sessionStorage.setItem('superTrendMultiplier', document.getElementById('superTrendMultiplier').value);
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
                 sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
                 sessionStorage.setItem('minUpperWickBuy', document.getElementById('minUpperWickBuy').value);
@@ -2529,7 +2538,8 @@
             // Calculate SuperTrend if filter is enabled
             const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
             if (superTrendFilterEnabled && candleData[symbol].length >= superTrendPeriod + 1) {
-                const stData = calculateSuperTrend(candleData[symbol], superTrendPeriod, superTrendMultiplier);
+                const multiplier = parseFloat(document.getElementById('superTrendMultiplier').value) || 3;
+                const stData = calculateSuperTrend(candleData[symbol], superTrendPeriod, multiplier);
                 if (stData) {
                     superTrendCache[symbol] = stData;
                 }
@@ -4682,6 +4692,20 @@
             }
         });
 
+        document.getElementById('superTrendMultiplier').addEventListener('change', () => {
+            const multiplier = document.getElementById('superTrendMultiplier').value;
+            logActivity(`SuperTrend multiplier updated to ${multiplier}`, 'success');
+            saveSettings();
+            
+            // Clear SuperTrend cache to recalculate with new multiplier
+            if (isAutoTrading && document.getElementById('superTrendFilter').checked) {
+                Object.keys(superTrendCache).forEach(symbol => {
+                    superTrendCache[symbol] = undefined;
+                });
+                logActivity('SuperTrend cache cleared. Recalculating with new multiplier...', 'info');
+            }
+        });
+
         document.getElementById('minLowerWickBuy').addEventListener('blur', saveSettings);
         document.getElementById('minUpperWickSell').addEventListener('blur', saveSettings);
         document.getElementById('minUpperWickBuy').addEventListener('blur', saveSettings);
@@ -4878,6 +4902,7 @@
             logActivity('  • Contract Types: RISE/FALL & HIGHER/LOWER', 'info');
             logActivity('  • Filters: Zero Closing, Ignore Height, Reverse Candle', 'info');
             logActivity('  • Advanced: Parabolic SAR Filter & SuperTrend Filter', 'info');
+            logActivity('  • SuperTrend: Adjustable multiplier (default: 3)', 'info');
             logActivity('  • Modes: Reverse Mode & Alternator Mode', 'info');
             logActivity('  • Risk Management: Stop Loss & Take Profit', 'info');
             logActivity('', 'info');
