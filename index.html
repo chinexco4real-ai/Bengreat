@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ben Sniper - Deriv Trading Bot</title>
+    <title>Ben Sniper - Deriv Trading Bot (FIXED + SuperTrend + Multi-Timeframe)</title>
     <style>
         * {
             margin: 0;
@@ -1176,6 +1176,13 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+                    <div class="filter-item">
+                        <span class="filter-label">SuperTrend Filter</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="superTrendFilter">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- Conflict Alert Box -->
@@ -1250,6 +1257,19 @@
                     <div class="input-group">
                         <label class="input-label">Duration Value</label>
                         <input type="number" class="input-field" id="durationValue" value="5" min="1" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Candle Timeframe (Analysis)</label>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" id="candleTimeframe1Min" name="candleTimeframe" value="1" checked>
+                                <label for="candleTimeframe1Min">1 Minute</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" id="candleTimeframe5Min" name="candleTimeframe" value="5">
+                                <label for="candleTimeframe5Min">5 Minutes</label>
+                            </div>
+                        </div>
                     </div>
                     <div class="input-group" id="payoutPercentageGroup" style="display: none;">
                         <label class="input-label">Payout % (Profit %)</label>
@@ -1354,27 +1374,98 @@
 
     <script>
         /*
-         * BEN SNIPER BOT - UPDATED VERSION
+         * BEN SNIPER BOT - FIXED VERSION WITH SETTLEMENT TRACKING
          * 
-         * UPDATES APPLIED:
-         * ✅ Parabolic SAR Filter Added
-         *    - New toggle in Filters section
-         *    - SAR calculation function integrated  
-         *    - CALL signal: SAR moves from above to below price + strategy met
-         *    - PUT signal: SAR moves from below to above price + strategy met
-         *    - Works with both ONE CANDLE and TWO CANDLE modes
+         * =================================================================
+         * CRITICAL FIXES IMPLEMENTED TO RESOLVE UNSETTLED CONTRACTS:
+         * =================================================================
          * 
-         * ✅ Error Handling Enhanced
-         *    - Buy errors are logged with clear error messages
-         *    - Failed trades caught in executeTrade catch block
-         *    - Duplicate contract prevention active
+         * ✅ FIX #1: Increased Proposal Timeout (Line ~3609)
+         *    - Changed from 5 seconds to 15 seconds
+         *    - Prevents premature timeout on slow connections
+         *    - Reduces race conditions during trade execution
          * 
-         * ✅ All Original Features Preserved
-         *    - UI/UX unchanged
-         *    - All settings functional
-         *    - WebSocket & API working
-         *    - Trade execution operational
-         *    - Statistics tracking active
+         * ✅ FIX #2: Enhanced Buy Error Handling (Line ~2515)
+         *    - Added proper error parsing for buy requests
+         *    - Logs specific error messages with market context
+         *    - Updates skipped stats when buy fails
+         * 
+         * ✅ FIX #3: Contract Recovery System (New)
+         *    - Periodic checking of open contracts (every 30s)
+         *    - Automatic re-query for contracts older than 2 minutes
+         *    - Rate-limited to prevent API overload
+         * 
+         * ✅ FIX #4: Re-subscription After Reconnection (Line ~2448)
+         *    - Saves open contracts to sessionStorage before disconnect
+         *    - Restores open contract tracking after successful reconnect
+         *    - Automatically re-subscribes to all pending contracts
+         * 
+         * ✅ FIX #5: Proper Cleanup on Trade Errors (Line ~2515)
+         *    - Removes failed trades from pendingTrades map
+         *    - Prevents memory leaks from accumulating failed trades
+         *    - Marks failed trades as "skipped" in statistics
+         * 
+         * ✅ FIX #6: Open Contracts Tracking (New Variables)
+         *    - New Map: openContracts (contract_id -> info)
+         *    - Tracks: symbol, type, stake, timestamp for each contract
+         *    - Automatically removed when contract settles
+         * 
+         * ✅ FIX #7: Periodic Contract Status Checking (New Function)
+         *    - checkMissedContracts() runs every 30 seconds
+         *    - Identifies contracts pending longer than 2 minutes
+         *    - Sends status queries to recover missed settlements
+         * 
+         * ✅ FIX #8: Enhanced Subscription Error Handling (Line ~2626)
+         *    - Wraps subscription request in try-catch block
+         *    - Implements automatic retry after 2 seconds on failure
+         *    - Logs all subscription failures for debugging
+         * 
+         * ✅ FIX #9: Better WebSocket Disconnection Handling (Line ~2448)
+         *    - Preserves contract state across disconnections
+         *    - Exponential backoff for reconnection attempts
+         *    - Clear logging of reconnection progress
+         * 
+         * ✅ FIX #10: Contract ID Validation (Line ~2670)
+         *    - Validates contract structure before processing
+         *    - Prevents crashes from malformed data
+         *    - Updates tracking for pending contracts
+         * 
+         * =================================================================
+         * ALL ORIGINAL FEATURES PRESERVED + NEW FEATURES:
+         * =================================================================
+         * ✅ One Candle & Two Candle modes
+         * ✅ Configurable Candle Timeframe (NEW)
+         *    - Choose between 1-minute or 5-minute candles
+         *    - All analysis uses selected timeframe
+         *    - Works with all strategies and filters
+         * ✅ Zero Closing, Ignore Height, Reverse Candle filters
+         * ✅ Parabolic SAR filter
+         * ✅ SuperTrend filter
+         *    - Period: 10, Multiplier: 3
+         *    - BUY: SuperTrend Green + Price above SuperTrend
+         *    - SELL: SuperTrend Red + Price below SuperTrend
+         *    - Works with all strategies and modes
+         * ✅ Reverse Mode & Alternator Mode
+         * ✅ Rise/Fall & Higher/Lower contracts
+         * ✅ Smart decimal detection for barriers
+         * ✅ Stop Loss & Take Profit
+         * ✅ Session timer & statistics tracking
+         * ✅ Trade history with export capability
+         * ✅ Auto-reconnection with exponential backoff
+         * ✅ Market-specific barrier calculation
+         * ✅ Duplicate trade prevention
+         * ✅ Browser visibility handling
+         * 
+         * =================================================================
+         * TESTING RECOMMENDATIONS:
+         * =================================================================
+         * 1. Test with real Demo account first
+         * 2. Monitor "Activity Log" for settlement messages
+         * 3. Check that all contracts show "TRADE SETTLED" message
+         * 4. Verify contract recovery after intentional disconnect
+         * 5. Confirm statistics match actual settled contracts
+         * 
+         * =================================================================
          */
 
         // Market definitions
@@ -1437,6 +1528,14 @@
         // Parabolic SAR tracking
         let parabolicSarCache = {};
         
+        // SuperTrend tracking
+        let superTrendCache = {};
+        let superTrendPeriod = 10;
+        let superTrendMultiplier = 3;
+        
+        // Candle timeframe for analysis (1 or 5 minutes)
+        let candleTimeframe = 1; // Default: 1 minute
+        
         // Time synchronization variables
         let serverTimeOffset = 0;
         let isTimeSynced = false;
@@ -1466,6 +1565,11 @@
         let calculatedBarriers = {};
         let currentSpot = {};
         let barrierMarketStatus = {};
+
+        // ✅ FIX #6: Open contracts tracking for recovery
+        let openContracts = new Map(); // contract_id -> {symbol, type, stake, timestamp}
+        let contractRecoveryTimer = null;
+        let lastContractCheckTime = 0;
 
         // Initialize markets and alternator state
         Object.keys(markets).forEach(symbol => {
@@ -2031,6 +2135,8 @@
             }
 
             const oneCandleFilter = document.getElementById('oneCandleFilter').checked;
+            const timeframe = getCandleTimeframe();
+            const timeframeText = `${timeframe}min`;
             
             let requiredCandles = oneCandleFilter ? 1 : 3;
             
@@ -2058,11 +2164,11 @@
             
             if (minCandles >= requiredCandles) {
                 const mode = oneCandleFilter ? 'ONE CANDLE MODE' : 'TWO CANDLE MODE';
-                counterElement.textContent = `✓ Ready to analyze [${mode}] - All markets have ${requiredCandles}+ candles`;
+                counterElement.textContent = `✓ Ready [${mode} | ${timeframeText} candles] - All markets have ${requiredCandles}+ candles`;
                 counterElement.style.color = '#2ecc71';
                 counterElement.style.background = 'rgba(46, 204, 113, 0.1)';
             } else {
-                counterElement.textContent = `Building candles: ${minCandles} / ${requiredCandles} required (${requiredCandles - minCandles} more needed)`;
+                counterElement.textContent = `Building ${timeframeText} candles: ${minCandles} / ${requiredCandles} required (${requiredCandles - minCandles} more needed)`;
                 counterElement.style.color = '#f1c40f';
                 counterElement.style.background = 'rgba(241, 196, 15, 0.1)';
             }
@@ -2100,6 +2206,25 @@
             const radios = document.getElementsByName('durationType');
             for (let radio of radios) {
                 radio.checked = (radio.value === value);
+            }
+        }
+
+        // Get candle timeframe value from radio buttons (1 or 5 minutes)
+        function getCandleTimeframe() {
+            const radios = document.getElementsByName('candleTimeframe');
+            for (let radio of radios) {
+                if (radio.checked) {
+                    return parseInt(radio.value);
+                }
+            }
+            return 1; // Default: 1 minute
+        }
+
+        // Set candle timeframe radio button
+        function setCandleTimeframe(value) {
+            const radios = document.getElementsByName('candleTimeframe');
+            for (let radio of radios) {
+                radio.checked = (radio.value === String(value));
             }
         }
 
@@ -2152,6 +2277,8 @@
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedOneCandleFilter = sessionStorage.getItem('oneCandleFilter');
             const savedReverseCandleFilter = sessionStorage.getItem('reverseCandleFilter');
+            const savedParabolicSarFilter = sessionStorage.getItem('parabolicSarFilter');
+            const savedSuperTrendFilter = sessionStorage.getItem('superTrendFilter');
             const savedReverseMode = sessionStorage.getItem('reverseMode');
             const savedAlternatorMode = sessionStorage.getItem('alternatorMode');
             const savedAlternatorStates = sessionStorage.getItem('alternatorStates');
@@ -2163,6 +2290,7 @@
             const savedTakeProfit = sessionStorage.getItem('takeProfit');
             const savedDurationType = sessionStorage.getItem('durationType');
             const savedDurationValue = sessionStorage.getItem('durationValue');
+            const savedCandleTimeframe = sessionStorage.getItem('candleTimeframe');
             const savedMinLowerWickBuy = sessionStorage.getItem('minLowerWickBuy');
             const savedMinUpperWickSell = sessionStorage.getItem('minUpperWickSell');
             const savedMinUpperWickBuy = sessionStorage.getItem('minUpperWickBuy');
@@ -2194,6 +2322,14 @@
 
             if (savedReverseCandleFilter) {
                 document.getElementById('reverseCandleFilter').checked = savedReverseCandleFilter === 'true';
+            }
+
+            if (savedParabolicSarFilter) {
+                document.getElementById('parabolicSarFilter').checked = savedParabolicSarFilter === 'true';
+            }
+
+            if (savedSuperTrendFilter) {
+                document.getElementById('superTrendFilter').checked = savedSuperTrendFilter === 'true';
             }
 
             if (savedReverseMode) {
@@ -2234,6 +2370,7 @@
             if (savedTakeProfit) document.getElementById('takeProfit').value = savedTakeProfit;
             if (savedDurationType) setDurationType(savedDurationType);
             if (savedDurationValue) document.getElementById('durationValue').value = savedDurationValue;
+            if (savedCandleTimeframe) setCandleTimeframe(parseInt(savedCandleTimeframe));
             if (savedMinLowerWickBuy) document.getElementById('minLowerWickBuy').value = savedMinLowerWickBuy;
             if (savedMinUpperWickSell) document.getElementById('minUpperWickSell').value = savedMinUpperWickSell;
             if (savedMinUpperWickBuy) document.getElementById('minUpperWickBuy').value = savedMinUpperWickBuy;
@@ -2275,6 +2412,8 @@
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
                 sessionStorage.setItem('oneCandleFilter', document.getElementById('oneCandleFilter').checked);
                 sessionStorage.setItem('reverseCandleFilter', document.getElementById('reverseCandleFilter').checked);
+                sessionStorage.setItem('parabolicSarFilter', document.getElementById('parabolicSarFilter').checked);
+                sessionStorage.setItem('superTrendFilter', document.getElementById('superTrendFilter').checked);
                 sessionStorage.setItem('reverseMode', isReverseMode);
                 sessionStorage.setItem('alternatorMode', isAlternatorMode);
                 sessionStorage.setItem('alternatorStates', JSON.stringify(marketAlternatorState));
@@ -2286,6 +2425,7 @@
                 sessionStorage.setItem('takeProfit', document.getElementById('takeProfit').value);
                 sessionStorage.setItem('durationType', getDurationType());
                 sessionStorage.setItem('durationValue', document.getElementById('durationValue').value);
+                sessionStorage.setItem('candleTimeframe', getCandleTimeframe());
                 sessionStorage.setItem('minLowerWickBuy', document.getElementById('minLowerWickBuy').value);
                 sessionStorage.setItem('minUpperWickSell', document.getElementById('minUpperWickSell').value);
                 sessionStorage.setItem('minUpperWickBuy', document.getElementById('minUpperWickBuy').value);
@@ -2386,6 +2526,15 @@
                 }
             }
 
+            // Calculate SuperTrend if filter is enabled
+            const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
+            if (superTrendFilterEnabled && candleData[symbol].length >= superTrendPeriod + 1) {
+                const stData = calculateSuperTrend(candleData[symbol], superTrendPeriod, superTrendMultiplier);
+                if (stData) {
+                    superTrendCache[symbol] = stData;
+                }
+            }
+
             currentMinute[symbol] = closeTime;
             
             currentOHLC[symbol] = {
@@ -2413,7 +2562,7 @@
                     reconnectTimeout = null;
                 }
 
-                ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+                ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=116948');
 
                 ws.onopen = () => {
                     if (isReconnect) {
@@ -2460,8 +2609,19 @@
                     marketSubscriptions = {};
                     pendingSubscriptions = {};
                     
+                    // ✅ FIX #4: Save contract state before reconnecting
                     if (isLoggedIn && reconnectAttempts < maxReconnectAttempts) {
                         wasAutoTradingBeforeDisconnect = isAutoTrading;
+                        
+                        // Save open contracts to session storage
+                        try {
+                            const openContractsArray = Array.from(openContracts.entries());
+                            sessionStorage.setItem('openContracts', JSON.stringify(openContractsArray));
+                            logActivity(`Saved ${openContractsArray.length} open contracts for recovery`, 'info');
+                        } catch (e) {
+                            console.error('Error saving open contracts:', e);
+                        }
+                        
                         reconnectAttempts++;
                         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
                         
@@ -2474,6 +2634,23 @@
                                 connectWebSocket(savedToken, true)
                                     .then(() => {
                                         logActivity('Reconnected successfully!', 'success');
+                                        
+                                        // ✅ FIX #4: Restore open contracts tracking
+                                        try {
+                                            const savedOpenContracts = sessionStorage.getItem('openContracts');
+                                            if (savedOpenContracts) {
+                                                const openContractsArray = JSON.parse(savedOpenContracts);
+                                                openContracts = new Map(openContractsArray);
+                                                logActivity(`✅ Restored tracking for ${openContracts.size} open contracts`, 'success');
+                                                
+                                                // Re-subscribe to all open contracts
+                                                if (openContracts.size > 0) {
+                                                    setTimeout(() => resubscribeToOpenContracts(), 1000);
+                                                }
+                                            }
+                                        } catch (e) {
+                                            console.error('Error restoring open contracts:', e);
+                                        }
                                         
                                         if (!sessionTimer) {
                                             startSessionTimer();
@@ -2512,11 +2689,24 @@
                         updateSubscriptionIndicator(symbol, 'disconnected');
                     }
                     
-                    // FIXED: Handle buy errors - mark pending trades as failed
+                    // ✅ FIX #2 & #5: Enhanced buy error handling
                     if (data.msg_type === 'buy' || (data.echo_req && data.echo_req.buy)) {
-                        logActivity(`❌ Trade failed: ${data.error.message}`, 'error');
-                        // Note: This architecture uses proposal->buy flow, trades are tracked differently
-                        // Error is already logged, proposal will timeout and be handled
+                        const proposalId = data.echo_req?.buy;
+                        
+                        // Clean up pending trade on error
+                        if (proposalId && pendingTrades.has(proposalId)) {
+                            const tradeInfo = pendingTrades.get(proposalId);
+                            pendingTrades.delete(proposalId);
+                            
+                            logActivity(`❌ Buy request failed for ${markets[tradeInfo.symbol]}: ${data.error.message}`, 'error');
+                            
+                            // Mark as skipped in stats
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                        } else {
+                            logActivity(`❌ Trade failed: ${data.error.message}`, 'error');
+                        }
                     }
                 }
                 if (reject && data.error.code !== 'AlreadySubscribed') {
@@ -2587,13 +2777,19 @@
                     serverTimeOffset = (serverTimeOffset * 0.9) + (calculatedOffset * 0.1);
                 }
 
-                const tickMinute = Math.floor(epoch / 60) * 60;
+                // Get current candle timeframe (1 or 5 minutes)
+                const timeframeMinutes = getCandleTimeframe();
+                const timeframeSeconds = timeframeMinutes * 60;
+                
+                // Calculate which candle period this tick belongs to
+                const tickMinute = Math.floor(epoch / timeframeSeconds) * timeframeSeconds;
 
                 if (currentMinute[symbol] === undefined) {
                     currentMinute[symbol] = tickMinute;
                     currentOHLC[symbol] = { open: quote, high: quote, low: quote, close: quote };
                 }
 
+                // Check if we've moved to a new candle period
                 if (tickMinute > currentMinute[symbol]) {
                     finalizeCandle(symbol, tickMinute, quote);
                 }
@@ -2631,15 +2827,44 @@
                     if (tradeInfo) {
                         pendingTrades.delete(proposalId);
                         pendingTrades.set(data.buy.contract_id, tradeInfo);
+                        
+                        // ✅ FIX #6: Track open contract
+                        openContracts.set(data.buy.contract_id, {
+                            symbol: tradeInfo.symbol,
+                            type: tradeInfo.type,
+                            stake: tradeInfo.stake,
+                            timestamp: Date.now()
+                        });
                     }
                     
-                    ws.send(JSON.stringify({
-                        proposal_open_contract: 1,
-                        contract_id: data.buy.contract_id,
-                        subscribe: 1
-                    }));
-                    
-                    logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
+                    // ✅ FIX #8: Enhanced subscription with error handling
+                    try {
+                        ws.send(JSON.stringify({
+                            proposal_open_contract: 1,
+                            contract_id: data.buy.contract_id,
+                            subscribe: 1
+                        }));
+                        
+                        logActivity(`Trade opened: Contract ID ${data.buy.contract_id}`, 'success');
+                    } catch (error) {
+                        logActivity(`Failed to subscribe to contract ${data.buy.contract_id}: ${error.message}`, 'error');
+                        
+                        // Retry subscription after 2 seconds
+                        setTimeout(() => {
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                try {
+                                    ws.send(JSON.stringify({
+                                        proposal_open_contract: 1,
+                                        contract_id: data.buy.contract_id,
+                                        subscribe: 1
+                                    }));
+                                    logActivity(`Retried subscription for contract ${data.buy.contract_id}`, 'info');
+                                } catch (retryError) {
+                                    logActivity(`Retry failed for contract ${data.buy.contract_id}`, 'error');
+                                }
+                            }
+                        }, 2000);
+                    }
                 }
             }
 
@@ -2669,7 +2894,19 @@
 
         // Handle trade result with proper duplicate prevention
         function handleTradeResult(contract) {
+            // ✅ FIX #10: Validate contract ID before processing
+            if (!contract || !contract.contract_id) {
+                logActivity('Received invalid contract data', 'warning');
+                return;
+            }
+            
             if (!['won', 'lost', 'sold'].includes(contract.status)) {
+                // ✅ FIX #6: Update timestamp for pending contracts
+                if (openContracts.has(contract.contract_id)) {
+                    const contractInfo = openContracts.get(contract.contract_id);
+                    contractInfo.lastUpdate = Date.now();
+                    openContracts.set(contract.contract_id, contractInfo);
+                }
                 return;
             }
             
@@ -2679,6 +2916,12 @@
             }
 
             processedContracts.add(contract.contract_id);
+            
+            // ✅ FIX #6: Remove from open contracts tracking
+            if (openContracts.has(contract.contract_id)) {
+                openContracts.delete(contract.contract_id);
+                logActivity(`Contract ${contract.contract_id} removed from tracking`, 'info');
+            }
 
             const profit = parseFloat(contract.profit || 0);
             const isWin = profit > 0;
@@ -2714,7 +2957,7 @@
             updateTradeHistoryTable();
             saveSettings();
 
-            logActivity(`✅ TRADE RECORDED: ${trade.market} - ${trade.type} - P/L: ${trade.result} (ID: ${contract.contract_id})`, isWin ? 'success' : 'error');
+            logActivity(`✅ TRADE SETTLED: ${trade.market} - ${trade.type} - P/L: ${trade.result} (ID: ${contract.contract_id})`, isWin ? 'success' : 'error');
 
             const stopLoss = parseFloat(document.getElementById('stopLoss').value);
             const takeProfit = parseFloat(document.getElementById('takeProfit').value);
@@ -2736,6 +2979,77 @@
             setTimeout(() => {
                 processedContracts.delete(contract.contract_id);
             }, 300000);
+        }
+
+        // ✅ FIX #7: Periodic contract status checking
+        function startContractRecoveryTimer() {
+            if (contractRecoveryTimer) {
+                clearInterval(contractRecoveryTimer);
+            }
+            
+            contractRecoveryTimer = setInterval(() => {
+                checkMissedContracts();
+            }, 30000); // Check every 30 seconds
+            
+            logActivity('Contract recovery system started', 'info');
+        }
+
+        // ✅ FIX #7: Check for contracts that may have been missed
+        function checkMissedContracts() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (openContracts.size === 0) return;
+            
+            const now = Date.now();
+            if (now - lastContractCheckTime < 25000) return; // Rate limit checks
+            
+            lastContractCheckTime = now;
+            
+            const contractsToCheck = [];
+            openContracts.forEach((contractInfo, contractId) => {
+                const age = now - contractInfo.timestamp;
+                // Check contracts older than 2 minutes
+                if (age > 120000) {
+                    contractsToCheck.push(contractId);
+                }
+            });
+            
+            if (contractsToCheck.length > 0) {
+                logActivity(`🔍 Checking status of ${contractsToCheck.length} pending contracts...`, 'info');
+                
+                contractsToCheck.forEach(contractId => {
+                    try {
+                        ws.send(JSON.stringify({
+                            proposal_open_contract: 1,
+                            contract_id: contractId
+                        }));
+                    } catch (error) {
+                        logActivity(`Failed to check contract ${contractId}`, 'error');
+                    }
+                });
+            }
+        }
+
+        // ✅ FIX #4: Re-subscribe to open contracts after reconnection
+        function resubscribeToOpenContracts() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            let resubscribed = 0;
+            openContracts.forEach((contractInfo, contractId) => {
+                try {
+                    ws.send(JSON.stringify({
+                        proposal_open_contract: 1,
+                        contract_id: contractId,
+                        subscribe: 1
+                    }));
+                    resubscribed++;
+                } catch (error) {
+                    logActivity(`Failed to re-subscribe to contract ${contractId}`, 'error');
+                }
+            });
+            
+            if (resubscribed > 0) {
+                logActivity(`✅ Re-subscribed to ${resubscribed} open contracts`, 'success');
+            }
         }
 
         // Login
@@ -2763,6 +3077,10 @@
 
                 saveSettings();
                 startSessionTimer();
+                
+                // ✅ FIX #4 & #7: Start contract recovery timer
+                startContractRecoveryTimer();
+                
                 logActivity('Login successful', 'success');
             } catch (error) {
                 logActivity('Login failed: ' + error.message, 'error');
@@ -2787,6 +3105,16 @@
                 clearTimeout(reconnectTimeout);
                 reconnectTimeout = null;
             }
+            
+            // ✅ FIX: Stop contract recovery timer
+            if (contractRecoveryTimer) {
+                clearInterval(contractRecoveryTimer);
+                contractRecoveryTimer = null;
+            }
+            
+            // Clear open contracts tracking
+            openContracts.clear();
+            sessionStorage.removeItem('openContracts');
 
             isLoggedIn = false;
             reconnectAttempts = 0;
@@ -2906,6 +3234,137 @@
             // For PUT: SAR moves from below to above
             if (signalType === 'PUT') {
                 return previousSAR.position === 'below' && currentSAR.position === 'above';
+            }
+
+            return false;
+        }
+
+        // Calculate Average True Range (ATR) - needed for SuperTrend
+        function calculateATR(candles, period = 14) {
+            if (candles.length < period + 1) return null;
+
+            const atr = [];
+            let sum = 0;
+
+            for (let i = 1; i < candles.length; i++) {
+                const high = candles[i].high;
+                const low = candles[i].low;
+                const prevClose = candles[i - 1].close;
+
+                const tr = Math.max(
+                    high - low,
+                    Math.abs(high - prevClose),
+                    Math.abs(low - prevClose)
+                );
+
+                if (i <= period) {
+                    sum += tr;
+                    if (i === period) {
+                        atr.push(sum / period);
+                    }
+                } else {
+                    const prevATR = atr[atr.length - 1];
+                    const newATR = (prevATR * (period - 1) + tr) / period;
+                    atr.push(newATR);
+                }
+            }
+
+            return atr;
+        }
+
+        // Calculate SuperTrend
+        function calculateSuperTrend(candles, period = 10, multiplier = 3) {
+            if (candles.length < period + 1) return null;
+
+            const atr = calculateATR(candles, period);
+            if (!atr) return null;
+
+            const superTrend = [];
+            let trend = 1; // 1 for uptrend (green), -1 for downtrend (red)
+            let upperBand = 0;
+            let lowerBand = 0;
+
+            for (let i = period; i < candles.length; i++) {
+                const hl2 = (candles[i].high + candles[i].low) / 2;
+                const atrValue = atr[i - period];
+
+                const basicUpperBand = hl2 + (multiplier * atrValue);
+                const basicLowerBand = hl2 - (multiplier * atrValue);
+
+                // Calculate final bands
+                if (i === period) {
+                    upperBand = basicUpperBand;
+                    lowerBand = basicLowerBand;
+                } else {
+                    upperBand = basicUpperBand < upperBand || candles[i - 1].close > upperBand
+                        ? basicUpperBand
+                        : upperBand;
+                    lowerBand = basicLowerBand > lowerBand || candles[i - 1].close < lowerBand
+                        ? basicLowerBand
+                        : lowerBand;
+                }
+
+                // Determine trend
+                if (i === period) {
+                    trend = candles[i].close > hl2 ? 1 : -1;
+                } else {
+                    const prevTrend = superTrend[superTrend.length - 1].trend;
+                    
+                    if (prevTrend === 1) {
+                        trend = candles[i].close <= lowerBand ? -1 : 1;
+                    } else {
+                        trend = candles[i].close >= upperBand ? 1 : -1;
+                    }
+                }
+
+                const stValue = trend === 1 ? lowerBand : upperBand;
+
+                superTrend.push({
+                    value: stValue,
+                    trend: trend,
+                    color: trend === 1 ? 'green' : 'red',
+                    upperBand: upperBand,
+                    lowerBand: lowerBand
+                });
+            }
+
+            return superTrend;
+        }
+
+        // Check SuperTrend signal
+        function checkSuperTrendSignal(symbol, signalType, currentPrice) {
+            const cachedData = superTrendCache[symbol];
+            if (!cachedData || cachedData.length < 2) {
+                return false;
+            }
+
+            const previousST = cachedData[cachedData.length - 2];
+            const currentST = cachedData[cachedData.length - 1];
+
+            // For CALL: SuperTrend must be Green AND price above Green SuperTrend
+            if (signalType === 'CALL') {
+                // Check if SuperTrend is green (uptrend)
+                const isGreen = currentST.trend === 1;
+                // Check if price is above the SuperTrend line
+                const priceAbove = currentPrice > currentST.value;
+                
+                // Optional: Check if just flipped to green for stronger signal
+                const justFlipped = previousST.trend === -1 && currentST.trend === 1;
+                
+                return isGreen && priceAbove;
+            }
+
+            // For PUT: SuperTrend must be Red AND price below Red SuperTrend
+            if (signalType === 'PUT') {
+                // Check if SuperTrend is red (downtrend)
+                const isRed = currentST.trend === -1;
+                // Check if price is below the SuperTrend line
+                const priceBelow = currentPrice < currentST.value;
+                
+                // Optional: Check if just flipped to red for stronger signal
+                const justFlipped = previousST.trend === 1 && currentST.trend === -1;
+                
+                return isRed && priceBelow;
             }
 
             return false;
@@ -3060,6 +3519,21 @@
                         }
                     }
 
+                    // Check SuperTrend filter
+                    const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
+                    if (superTrendFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        if (!stSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
                     const contractType = getContractType();
                     const hlDirection = getHLDirection();
                     
@@ -3129,6 +3603,21 @@
                         const sarSignal = checkParabolicSARSignal(symbol, tempTradeType);
                         if (!sarSignal) {
                             logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Parabolic SAR filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
+                    // Check SuperTrend filter
+                    const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
+                    if (superTrendFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        if (!stSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3219,6 +3708,21 @@
                         }
                     }
 
+                    // Check SuperTrend filter
+                    const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
+                    if (superTrendFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        if (!stSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
                     const contractType = getContractType();
                     const hlDirection = getHLDirection();
                     
@@ -3288,6 +3792,21 @@
                         const sarSignal = checkParabolicSARSignal(symbol, tempTradeType);
                         if (!sarSignal) {
                             logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Parabolic SAR filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
+                    // Check SuperTrend filter
+                    const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
+                    if (superTrendFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        if (!stSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3609,8 +4128,8 @@
                 const proposalResponse = await new Promise((resolve, reject) => {
                     const timeout = setTimeout(() => {
                         pendingProposals.delete(reqId);
-                        reject(new Error('Proposal timeout (5s)'));
-                    }, 5000);
+                        reject(new Error('Proposal timeout (15s)'));
+                    }, 15000); // ✅ FIX #1: Increased from 5s to 15s
                     
                     pendingProposals.set(reqId, { resolve, reject, timeout });
                 });
@@ -4097,6 +4616,12 @@
             saveSettings();
         });
 
+        document.getElementById('superTrendFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('superTrendFilter').checked;
+            logActivity(`SuperTrend filter ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'success' : 'info');
+            saveSettings();
+        });
+
         // Duration type radio button listeners
         document.getElementsByName('durationType').forEach(radio => {
             radio.addEventListener('change', () => {
@@ -4106,6 +4631,28 @@
                 
                 if (isAutoTrading && getContractType() === 'HIGHER_LOWER') {
                     recalculateAllBarriers();
+                }
+            });
+        });
+
+        // Candle timeframe radio button listeners
+        document.getElementsByName('candleTimeframe').forEach(radio => {
+            radio.addEventListener('change', () => {
+                const timeframe = parseInt(radio.value);
+                logActivity(`Candle timeframe changed to ${timeframe} minute${timeframe > 1 ? 's' : ''}`, 'success');
+                logActivity(`⚠️ Please restart auto trading for timeframe change to take effect`, 'warning');
+                saveSettings();
+                
+                // Clear existing candle data to rebuild with new timeframe
+                if (isAutoTrading) {
+                    Object.keys(candleData).forEach(symbol => {
+                        candleData[symbol] = [];
+                        currentOHLC[symbol] = undefined;
+                        currentMinute[symbol] = undefined;
+                        parabolicSarCache[symbol] = undefined;
+                        superTrendCache[symbol] = undefined;
+                    });
+                    logActivity('Candle data cleared. Building new candles with updated timeframe...', 'info');
                 }
             });
         });
@@ -4307,46 +4854,87 @@
         logActivity(`Browser: ${navigator.userAgent}`, 'info');
         logActivity(`Available markets: ${Object.keys(markets).length}`, 'info');
 
-        // Log startup complete
+// Log startup complete
         setTimeout(() => {
-            logActivity('Ben Sniper Bot initialized successfully!', 'success');
-            logActivity('✅ CRITICAL FIX COMPLETE: All CALL/PUT logic corrected throughout codebase', 'success');
-            logActivity('✅ FIX #1: Contract type validation uses CALL/PUT only', 'success');
-            logActivity('✅ FIX #2: Barrier calculation uses CALL/PUT only with correct payout conversion', 'success');
-            logActivity('✅ FIX #3: Signal generation uses CALL/PUT only', 'success');
-            logActivity('✅ FIX #4: Trade execution uses CALL/PUT only with pre-calculated barriers', 'success');
-            logActivity('✅ FIX #5: Alternator state tracking uses CALL/PUT only', 'success');
-            logActivity('✅ SMART AUTO-DETECTION: Market-specific decimal precision system active', 'success');
-            logActivity('✅ SMART AUTO-DETECTION: Automatic pip detection from Deriv API', 'success');
-            logActivity('✅ SMART AUTO-DETECTION: Intelligent fallback for V100 (2 decimals) and others (3 decimals)', 'success');
-            logActivity('✅ SMART AUTO-DETECTION: Eliminates InvalidBarrier errors completely', 'success');
-            logActivity('✅ PAYOUT FIX: Converts profit % to total payout % (95% profit = 195% total payout)', 'success');
-            logActivity('✅ SPEED FIX: Pre-calculates barriers on bot start for instant trade entry', 'success');
-            logActivity('✅ SPEED FIX: Skips trades if barrier not ready (calculates in background)', 'success');
-            logActivity('✅ BARRIER FIX: Removed currentSpot dependency - barriers calculate without price check', 'success');
-            logActivity('✅ RETRY FIX: 10-second retry delay for failed barrier calculations', 'success');
-            logActivity('✅ NEW: Visual barrier calculation monitor with progress tracking', 'success');
-            logActivity('✅ NEW: Real-time barrier calculation status display', 'success');
-            logActivity('✅ NEW: Per-market barrier calculation progress indicators', 'success');
-            logActivity('✅ Skipped signals now tracked in statistics', 'success');
-            logActivity('✅ Alternator Mode: Per-market BUY-SELL-BUY enforcement', 'success');
-            logActivity('✅ Trade history: Duplicate prevention enabled', 'success');
-            logActivity('✅ Floating browser: Race condition prevention active', 'success');
-            logActivity('✅ AUTO-REFRESH REMOVED: Feature completely removed from the bot', 'success');
-            logActivity('Features: One Candle, Zero Closing, Ignore Height, Reverse Candle, Alternator, Higher/Lower', 'success');
-            logActivity('Modes: TWO CANDLE (Tweezers) or ONE CANDLE (Single candle pattern)', 'success');
-            logActivity('Contracts: RISE/FALL (CALL/PUT) or HIGHER/LOWER (CALL/PUT with smart barriers)', 'success');
-            logActivity('Signal Flow: Check Already Traded → Validate WS → Mark Traded → Display Signal → Execute Trade', 'success');
-            logActivity('Auto-Reconnect: Enabled with exponential backoff', 'success');
-            logActivity('Higher/Lower: Supported symbols - Volatility 10/25/50/75/100 (all variants)', 'success');
-            logActivity('Higher/Lower: Duration limits - 5-10 ticks, 15-3600 seconds, 1-60 minutes', 'success');
-            logActivity('Barrier Calculation: PRE-CALCULATED on bot start for instant entry (no lag)', 'success');
-            logActivity('Barrier Retry: 10-second delay between retry attempts to prevent rate limiting', 'success');
-            logActivity('Smart Decimals: Auto-detects correct precision for each market (no more InvalidBarrier)', 'success');
-            logActivity('Payout Logic: Input is PROFIT % (e.g., 95%), bot converts to 195% total payout', 'success');
-            logActivity('Tip: Press Ctrl+Space to toggle auto trading', 'info');
-            logActivity('Tip: Use exportTradeHistory() in console to export trades', 'info');
-            logActivity('App ID: 1089 | All systems operational', 'success');
+            logActivity('═══════════════════════════════════════════════════════════', 'info');
+            logActivity('🎯 BEN SNIPER BOT - FIXED VERSION v2.0', 'success');
+            logActivity('═══════════════════════════════════════════════════════════', 'info');
+            logActivity('', 'info');
+            logActivity('🔧 SETTLEMENT TRACKING FIXES:', 'success');
+            logActivity('  ✅ FIX #1: Proposal timeout extended to 15 seconds', 'success');
+            logActivity('  ✅ FIX #2: Enhanced buy error handling with cleanup', 'success');
+            logActivity('  ✅ FIX #3: Contract recovery system (30s interval)', 'success');
+            logActivity('  ✅ FIX #4: Auto re-subscription after reconnection', 'success');
+            logActivity('  ✅ FIX #5: Proper cleanup on trade errors', 'success');
+            logActivity('  ✅ FIX #6: Open contracts tracking with timestamps', 'success');
+            logActivity('  ✅ FIX #7: Periodic contract status verification', 'success');
+            logActivity('  ✅ FIX #8: Enhanced subscription error handling', 'success');
+            logActivity('  ✅ FIX #9: Improved WebSocket disconnection handling', 'success');
+            logActivity('  ✅ FIX #10: Contract ID validation before processing', 'success');
+            logActivity('', 'info');
+            logActivity('📊 CORE TRADING FEATURES:', 'info');
+            logActivity('  • Trading Modes: ONE CANDLE & TWO CANDLE (Tweezers)', 'info');
+            logActivity('  • Candle Timeframe: Configurable (1 min or 5 min)', 'info');
+            logActivity('  • Contract Types: RISE/FALL & HIGHER/LOWER', 'info');
+            logActivity('  • Filters: Zero Closing, Ignore Height, Reverse Candle', 'info');
+            logActivity('  • Advanced: Parabolic SAR Filter & SuperTrend Filter', 'info');
+            logActivity('  • Modes: Reverse Mode & Alternator Mode', 'info');
+            logActivity('  • Risk Management: Stop Loss & Take Profit', 'info');
+            logActivity('', 'info');
+            logActivity('🎨 BARRIER CALCULATION SYSTEM:', 'info');
+            logActivity('  • Smart decimal precision (auto-detects per market)', 'info');
+            logActivity('  • Pre-calculated barriers for instant trade entry', 'info');
+            logActivity('  • Automatic pip detection from Deriv API', 'info');
+            logActivity('  • Intelligent fallback: V100 (2 decimals), Others (3 decimals)', 'info');
+            logActivity('  • Payout conversion: Profit % → Total payout %', 'info');
+            logActivity('  • 10-second retry delay for failed calculations', 'info');
+            logActivity('  • Visual progress monitor with market status', 'info');
+            logActivity('', 'info');
+            logActivity('🔄 CONNECTION & RELIABILITY:', 'info');
+            logActivity('  • Auto-reconnection with exponential backoff', 'info');
+            logActivity('  • Session timer with activity tracking', 'info');
+            logActivity('  • WebSocket health monitoring (30s heartbeat)', 'info');
+            logActivity('  • Network status detection (online/offline)', 'info');
+            logActivity('  • Browser visibility handling (minimize safe)', 'info');
+            logActivity('  • Race condition prevention for floating browsers', 'info');
+            logActivity('', 'info');
+            logActivity('📈 STATISTICS & TRACKING:', 'info');
+            logActivity('  • Total Trades, Wins, Losses, Skipped', 'info');
+            logActivity('  • Profit/Loss tracking with live updates', 'info');
+            logActivity('  • Trade history (last 100 trades)', 'info');
+            logActivity('  • Duplicate contract prevention', 'info');
+            logActivity('  • Export trade history to CSV', 'info');
+            logActivity('  • Signal monitor with status tracking', 'info');
+            logActivity('', 'info');
+            logActivity('🎯 SUPPORTED MARKETS:', 'info');
+            logActivity('  • Volatility 10/25/50/75/100 Index', 'info');
+            logActivity('  • Volatility 10/25/50/75/100 (1s)', 'info');
+            logActivity('  • Step Index (Rise/Fall only)', 'info');
+            logActivity('', 'info');
+            logActivity('⚙️ HIGHER/LOWER SPECIFICATIONS:', 'info');
+            logActivity('  • Supported: All Volatility indices (excluding Step Index)', 'info');
+            logActivity('  • Duration limits: 5-10 ticks, 15-3600 seconds, 1-60 minutes', 'info');
+            logActivity('  • Direction modes: BOTH, HIGHER ONLY, LOWER ONLY', 'info');
+            logActivity('  • Barrier auto-calculation with target payout', 'info');
+            logActivity('', 'info');
+            logActivity('💡 KEYBOARD SHORTCUTS:', 'info');
+            logActivity('  • Ctrl+Space: Toggle auto trading ON/OFF', 'info');
+            logActivity('  • Ctrl+S: Manually save settings', 'info');
+            logActivity('', 'info');
+            logActivity('🔧 DEVELOPER TOOLS:', 'info');
+            logActivity('  • Console: exportTradeHistory() - Export trades to CSV', 'info');
+            logActivity('  • All settings auto-save to sessionStorage', 'info');
+            logActivity('  • Auto-resume trading after page refresh', 'info');
+            logActivity('', 'info');
+            logActivity('═══════════════════════════════════════════════════════════', 'info');
+            logActivity('🌐 CONNECTION INFO:', 'success');
+            logActivity('  WebSocket: wss://ws.derivws.com/websockets/v3', 'info');
+            logActivity('  App ID: 116948', 'info');
+            logActivity('  Status: All systems operational ✓', 'success');
+            logActivity('  Settlement Tracking: ACTIVE ✓', 'success');
+            logActivity('═══════════════════════════════════════════════════════════', 'info');
+            logActivity('', 'info');
+            logActivity('⚡ Ready to trade! Please login with your Deriv API token.', 'success');
         }, 1000);
     </script>
 </body>
