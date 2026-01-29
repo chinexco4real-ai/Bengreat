@@ -1476,21 +1476,35 @@
 
         // Market definitions
         const markets = {
-            '1HZ10V': 'Volatility 10 (1s)',
-            '1HZ25V': 'Volatility 25 (1s)',
-            '1HZ50V': 'Volatility 50 (1s)',
-            '1HZ75V': 'Volatility 75 (1s)',
-            '1HZ100V': 'Volatility 100 (1s)',
-            'R_10': 'Volatility 10',
-            'R_25': 'Volatility 25',
-            'R_50': 'Volatility 50',
-            'R_75': 'Volatility 75',
-            'R_100': 'Volatility 100',
+            // Volatility Indices
+            'R_10': 'Volatility 10 Index',
+            'R_25': 'Volatility 25 Index',
+            'R_50': 'Volatility 50 Index',
+            'R_75': 'Volatility 75 Index',
+            'R_100': 'Volatility 100 Index',
+            
+            // Step Indices
             'stpRNG': 'Step Index 100',
             'stpRNG2': 'Step Index 200',
             'stpRNG3': 'Step Index 300',
             'stpRNG4': 'Step Index 400',
-            'stpRNG5': 'Step Index 500'
+            'stpRNG5': 'Step Index 500',
+            
+            // Forex Pairs
+            'frxEURUSD': 'EUR/USD',
+            'frxGBPUSD': 'GBP/USD',
+            'frxUSDJPY': 'USD/JPY',
+            'frxEURGBP': 'EUR/GBP',
+            'frxEURJPY': 'EUR/JPY',
+            'frxGBPJPY': 'GBP/JPY',
+            'frxAUDUSD': 'AUD/USD',
+            'frxUSDCAD': 'USD/CAD',
+            'frxEURCAD': 'EUR/CAD',
+            'frxEURCHF': 'EUR/CHF',
+            'frxEURAUD': 'EUR/AUD',
+            'frxGBPAUD': 'GBP/AUD',
+            'frxAUDJPY': 'AUD/JPY',
+            'frxUSDCHF': 'USD/CHF'
         };
 
         // Global state
@@ -4933,8 +4947,11 @@
             logActivity('', 'info');
             logActivity('🎯 SUPPORTED MARKETS:', 'info');
             logActivity('  • Volatility 10/25/50/75/100 Index', 'info');
-            logActivity('  • Volatility 10/25/50/75/100 (1s)', 'info');
-            logActivity('  • Step Index (Rise/Fall only)', 'info');
+            logActivity('  • Step Index (100/200/300/400/500)', 'info');
+            logActivity('  • Forex: EUR/USD, GBP/USD, USD/JPY, EUR/GBP', 'info');
+            logActivity('  • Forex: EUR/JPY, GBP/JPY, AUD/USD, USD/CAD', 'info');
+            logActivity('  • Forex: EUR/CAD, EUR/CHF, EUR/AUD, GBP/AUD', 'info');
+            logActivity('  • Forex: AUD/JPY, USD/CHF', 'info');
             logActivity('', 'info');
             logActivity('⚙️ HIGHER/LOWER SPECIFICATIONS:', 'info');
             logActivity('  • Supported: All Volatility indices (excluding Step Index)', 'info');
