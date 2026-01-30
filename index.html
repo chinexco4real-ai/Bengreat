@@ -3428,6 +3428,12 @@
 
         // Session timer
         function startSessionTimer() {
+            // Clear any existing timer first
+            if (sessionTimer) {
+                clearInterval(sessionTimer);
+                sessionTimer = null;
+            }
+            
             sessionStartTime = Date.now();
             sessionTimer = setInterval(() => {
                 const elapsed = Date.now() - sessionStartTime;
@@ -3438,12 +3444,15 @@
                 document.getElementById('timerValue').textContent = 
                     `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             }, 1000);
+            
+            logActivity('Session timer started', 'info');
         }
 
         function stopSessionTimer() {
             if (sessionTimer) {
                 clearInterval(sessionTimer);
                 sessionTimer = null;
+                logActivity('Session timer stopped', 'info');
             }
             sessionStartTime = null;
             document.getElementById('timerValue').textContent = '00:00:00';
