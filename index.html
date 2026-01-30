@@ -3093,7 +3093,7 @@
         function handleTradeResult(contract) {
             // ✅ FIX #10: Validate contract ID before processing
             if (!contract || !contract.contract_id) {
-                logActivity('⚠️ Received invalid contract data', 'warning');
+                logActivity('Received invalid contract data', 'warning');
                 return;
             }
             
@@ -3103,21 +3103,6 @@
                     const contractInfo = openContracts.get(contract.contract_id);
                     contractInfo.lastUpdate = Date.now();
                     openContracts.set(contract.contract_id, contractInfo);
-                    
-                    // Log periodic updates for long-running contracts
-                    const age = Date.now() - contractInfo.timestamp;
-                    const expectedDuration = calculateExpectedDuration(contractInfo.duration, contractInfo.durationType);
-                    
-                    // Only log if contract is taking longer than expected
-                    if (age > expectedDuration * 1.2) { // 20% over expected time
-                        const ageMinutes = Math.floor(age / 60000);
-                        const ageSeconds = Math.floor((age % 60000) / 1000);
-                        logActivity(
-                            `⏳ Contract ${contract.contract_id.substring(0, 8)}... still pending ` +
-                            `(${ageMinutes}m ${ageSeconds}s) - Status: ${contract.status}`,
-                            'info'
-                        );
-                    }
                 }
                 return;
             }
@@ -3129,7 +3114,7 @@
 
             processedContracts.add(contract.contract_id);
             
-            // ✅ CRITICAL: Clear timer and remove from open contracts with duration logging
+            // ✅ FIX #6: Remove from open contracts tracking and clear timer
             if (openContracts.has(contract.contract_id)) {
                 const contractInfo = openContracts.get(contract.contract_id);
                 
@@ -3139,18 +3124,9 @@
                     contractInfo.checkTimer = null;
                 }
                 
-                // Calculate final contract duration
-                const totalDuration = Date.now() - contractInfo.timestamp;
-                const durationMinutes = Math.floor(totalDuration / 60000);
-                const durationSeconds = Math.floor((totalDuration % 60000) / 1000);
-                
                 openContracts.delete(contract.contract_id);
-                
-                logActivity(
-                    `✅ Contract ${contract.contract_id.substring(0, 8)}... settled ` +
-                    `(Total time: ${durationMinutes}m ${durationSeconds}s) - Removed from smart monitoring`,
-                    'success'
-                );
+                const contractIdStr = String(contract.contract_id || '');
+                logActivity(`✅ Contract ${contractIdStr.substring(0, 8)}... settled and removed from smart monitoring`, 'success');
             }
 
             const profit = parseFloat(contract.profit || 0);
@@ -3211,187 +3187,98 @@
             }, 300000);
         }
 
-
-        // ============================================================================
-        // ✅ IMPROVED SMART CONTRACT MONITORING SYSTEM
-        // ============================================================================
-        // Each contract is monitored based on its INDIVIDUAL duration
-        // Example: 1min contract → check after ~1min
-        //          5min contract → check after ~5min
-        //         15min contract → check after ~15min
-        // ============================================================================
-
-        // Schedule individual check for a specific contract based on its duration
+        // ✅ FIX #7: Periodic contract status checking
+        // ✅ SMART CONTRACT RECOVERY: Individual timers for each contract
         function scheduleContractCheck(contractId, contractInfo) {
-            // Calculate expected duration in milliseconds
+            // Ensure contractId is a string
+            const contractIdStr = String(contractId || '');
+            
+            // Calculate expected duration
             const expectedDuration = calculateExpectedDuration(contractInfo.duration, contractInfo.durationType);
+            const gracePeriod = Math.max(10000, expectedDuration * 0.2); // 20% grace or min 10 seconds
+            const checkTime = expectedDuration + gracePeriod;
             
-            // Add a small grace period (10% of duration or minimum 5 seconds)
-            // This ensures we don't check too early
-            const gracePeriod = Math.max(5000, expectedDuration * 0.1); // 10% grace or min 5 seconds
-            const totalWaitTime = expectedDuration + gracePeriod;
-            
-            // Format duration for better logging
+            // Format duration for logging
             const durationText = `${contractInfo.duration}${contractInfo.durationType}`;
-            const waitMinutes = Math.floor(totalWaitTime / 60000);
-            const waitSeconds = Math.floor((totalWaitTime % 60000) / 1000);
+            const checkMinutes = Math.floor(checkTime / 60000);
+            const checkSeconds = Math.floor((checkTime % 60000) / 1000);
             
-            logActivity(
-                `⏰ Smart Monitor: Contract ${contractId.substring(0, 8)}... ` +
-                `(Duration: ${durationText}) → Will check in ${waitMinutes}m ${waitSeconds}s`,
-                'info'
-            );
+            logActivity(`⏰ Smart monitor: Will check contract ${contractIdStr.substring(0, 8)}... in ${checkMinutes}m ${checkSeconds}s (Duration: ${durationText})`, 'info');
             
-            // Schedule individual check for this specific contract
+            // Set individual timer for this contract
             const checkTimer = setTimeout(() => {
                 checkSpecificContract(contractId, contractInfo);
-            }, totalWaitTime);
+            }, checkTime);
             
-            // Store timer reference and scheduled time
+            // Store timer reference
             contractInfo.checkTimer = checkTimer;
-            contractInfo.scheduledCheckTime = Date.now() + totalWaitTime;
-            
-            // Update the contract info in the map
-            openContracts.set(contractId, contractInfo);
+            contractInfo.scheduledCheckTime = Date.now() + checkTime;
         }
 
-        // Check a specific contract after its expected duration has passed
+        // Check a specific contract after its expected duration
         function checkSpecificContract(contractId, contractInfo) {
-            // Verify WebSocket is still connected
             if (!ws || ws.readyState !== WebSocket.OPEN) {
-                logActivity(`⚠️ Cannot check contract ${contractId}: WebSocket disconnected`, 'warning');
-                
-                // Reschedule check for 10 seconds later if still in openContracts
-                if (openContracts.has(contractId)) {
-                    const rescheduledTimer = setTimeout(() => {
-                        checkSpecificContract(contractId, contractInfo);
-                    }, 10000);
-                    
-                    contractInfo.checkTimer = rescheduledTimer;
-                    openContracts.set(contractId, contractInfo);
-                }
+                logActivity(`⚠️ Cannot check contract ${contractId}: WebSocket not connected`, 'warning');
                 return;
             }
             
-            // Check if contract already settled (removed from openContracts)
+            // Check if contract is still open
             if (!openContracts.has(contractId)) {
-                logActivity(`✅ Contract ${contractId.substring(0, 8)}... already settled`, 'success');
-                return;
+                return; // Already settled
             }
             
-            // Calculate contract age
             const age = Date.now() - contractInfo.timestamp;
             const ageMinutes = Math.floor(age / 60000);
-            const ageSeconds = Math.floor((age % 60000) / 1000);
             const durationText = `${contractInfo.duration}${contractInfo.durationType}`;
             
-            logActivity(
-                `🔍 Smart Check: ${contractInfo.symbol} contract ` +
-                `(Duration: ${durationText}, Age: ${ageMinutes}m ${ageSeconds}s) - Requesting status...`,
-                'info'
-            );
+            logActivity(`🔍 Smart check: ${contractInfo.symbol} contract (Duration: ${durationText}, Age: ${ageMinutes}m)`, 'info');
             
-            // Request contract status
             try {
                 ws.send(JSON.stringify({
                     proposal_open_contract: 1,
                     contract_id: contractId
                 }));
-                
-                // Schedule a follow-up check in 30 seconds if contract still hasn't settled
-                const followUpTimer = setTimeout(() => {
-                    if (openContracts.has(contractId)) {
-                        logActivity(
-                            `⚠️ Contract ${contractId.substring(0, 8)}... still pending after check. Requesting again...`,
-                            'warning'
-                        );
-                        checkSpecificContract(contractId, contractInfo);
-                    }
-                }, 30000);
-                
-                // Update timer reference
-                contractInfo.checkTimer = followUpTimer;
-                openContracts.set(contractId, contractInfo);
-                
             } catch (error) {
                 logActivity(`❌ Failed to check contract ${contractId}: ${error.message}`, 'error');
-                
-                // Retry after 15 seconds
-                const retryTimer = setTimeout(() => {
-                    if (openContracts.has(contractId)) {
-                        checkSpecificContract(contractId, contractInfo);
-                    }
-                }, 15000);
-                
-                contractInfo.checkTimer = retryTimer;
-                openContracts.set(contractId, contractInfo);
             }
         }
 
-        // Helper function to calculate expected contract duration in milliseconds
-        function calculateExpectedDuration(value, type) {
-            switch(type) {
-                case 't': // Ticks - approximately 2 seconds per tick
-                    return value * 2000;
-                case 's': // Seconds
-                    return value * 1000;
-                case 'm': // Minutes
-                    return value * 60000;
-                case 'h': // Hours
-                    return value * 3600000;
-                case 'd': // Days
-                    return value * 86400000;
-                default:
-                    logActivity(`⚠️ Unknown duration type: ${type}, defaulting to 2 minutes`, 'warning');
-                    return 120000; // Default 2 minutes if unknown
-            }
-        }
-
-        // IMPROVED: Backup monitoring system that respects individual contract durations
+        // Old periodic check function - now serves as backup only
         function startContractRecoveryTimer() {
-            // Clear any existing timer
             if (contractRecoveryTimer) {
                 clearInterval(contractRecoveryTimer);
             }
             
-            // Backup check runs every 2 minutes (120 seconds)
-            // This is ONLY a safety net - individual timers handle 99% of cases
+            // Backup check every 60 seconds (increased from 30s since individual timers handle most cases)
             contractRecoveryTimer = setInterval(() => {
-                checkOverdueContracts();
-            }, 120000); // 2 minutes
+                checkMissedContracts();
+            }, 60000);
             
-            logActivity(
-                '✅ Smart contract monitoring started:\n' +
-                '   • Per-contract individual timers (primary)\n' +
-                '   • 2-minute backup check (safety net)',
-                'success'
-            );
+            logActivity('Smart contract monitoring started (per-contract timers + 60s backup)', 'success');
         }
 
-        // IMPROVED: Only check contracts that are truly overdue
-        function checkOverdueContracts() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                return; // Skip if not connected
-            }
-            
-            if (openContracts.size === 0) {
-                return; // No contracts to check
-            }
+        // ✅ BACKUP CHECK: Catches any contracts that individual timers might have missed
+        function checkMissedContracts() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (openContracts.size === 0) return;
             
             const now = Date.now();
-            const overdueContracts = [];
+            if (now - lastContractCheckTime < 25000) return; // Rate limit checks
             
+            lastContractCheckTime = now;
+            
+            const contractsToCheck = [];
             openContracts.forEach((contractInfo, contractId) => {
                 const age = now - contractInfo.timestamp;
                 
-                // Calculate expected duration + substantial grace period
+                // Calculate expected duration in milliseconds with grace period
                 const expectedDuration = calculateExpectedDuration(contractInfo.duration, contractInfo.durationType);
-                const gracePeriod = Math.max(30000, expectedDuration * 0.3); // 30% grace or min 30 seconds
-                const overdueThreshold = expectedDuration + gracePeriod;
+                const gracePeriod = 60000; // 1 minute grace period
+                const checkThreshold = expectedDuration + gracePeriod;
                 
-                // Only flag as overdue if contract age exceeds expected duration + grace period
-                if (age > overdueThreshold) {
-                    overdueContracts.push({
+                // Only check contracts that have passed their expected duration + grace period
+                if (age > checkThreshold) {
+                    contractsToCheck.push({
                         contractId: contractId,
                         age: age,
                         expected: expectedDuration,
@@ -3402,26 +3289,16 @@
                 }
             });
             
-            // Only log and check if we actually found overdue contracts
-            if (overdueContracts.length > 0) {
-                logActivity(
-                    `⚠️ Backup Check: Found ${overdueContracts.length} overdue contract(s)`,
-                    'warning'
-                );
+            if (contractsToCheck.length > 0) {
+                logActivity(`🔍 Backup check: Found ${contractsToCheck.length} contract(s) needing verification`, 'warning');
                 
-                overdueContracts.forEach(item => {
+                contractsToCheck.forEach(item => {
                     const ageMinutes = Math.floor(item.age / 60000);
                     const ageSeconds = Math.floor((item.age % 60000) / 1000);
                     const expectedMinutes = Math.floor(item.expected / 60000);
-                    const expectedSeconds = Math.floor((item.expected % 60000) / 1000);
                     const durationText = `${item.duration}${item.durationType}`;
                     
-                    logActivity(
-                        `  📊 ${item.symbol}: Duration=${durationText}, ` +
-                        `Expected=${expectedMinutes}m ${expectedSeconds}s, ` +
-                        `Actual Age=${ageMinutes}m ${ageSeconds}s - Requesting status...`,
-                        'warning'
-                    );
+                    logActivity(`  Verifying: ${item.symbol} (Set: ${durationText}, Age: ${ageMinutes}m ${ageSeconds}s, Expected: ${expectedMinutes}m)`, 'warning');
                     
                     try {
                         ws.send(JSON.stringify({
@@ -3429,9 +3306,27 @@
                             contract_id: item.contractId
                         }));
                     } catch (error) {
-                        logActivity(`❌ Failed to check contract ${item.contractId}`, 'error');
+                        logActivity(`Failed to verify contract ${item.contractId}`, 'error');
                     }
                 });
+            }
+        }
+
+        // Helper function to calculate expected contract duration in milliseconds
+        function calculateExpectedDuration(value, type) {
+            switch(type) {
+                case 't': // Ticks - assume ~2 seconds per tick
+                    return value * 2000;
+                case 's': // Seconds
+                    return value * 1000;
+                case 'm': // Minutes
+                    return value * 60000;
+                case 'h': // Hours
+                    return value * 3600000;
+                case 'd': // Days
+                    return value * 86400000;
+                default:
+                    return 120000; // Default 2 minutes if unknown
             }
         }
 
@@ -5286,7 +5181,7 @@
             logActivity('🔧 SETTLEMENT TRACKING FIXES:', 'success');
             logActivity('  ✅ FIX #1: Proposal timeout extended to 15 seconds', 'success');
             logActivity('  ✅ FIX #2: Enhanced buy error handling with cleanup', 'success');
-            logActivity('  ✅ FIX #3: Smart contract monitoring (individual per-contract timers)', 'success');
+            logActivity('  ✅ FIX #3: Smart contract monitoring (per-contract timers)', 'success');
             logActivity('  ✅ FIX #4: Auto re-subscription after reconnection', 'success');
             logActivity('  ✅ FIX #5: Proper cleanup on trade errors', 'success');
             logActivity('  ✅ FIX #6: Open contracts tracking with timestamps', 'success');
