@@ -1575,6 +1575,14 @@
         let reconnectTimeout = null;
         let wasAutoTradingBeforeDisconnect = false;
 
+        // Heartbeat / Connection Health Monitoring
+        let heartbeatInterval = null;
+        let heartbeatTimeout = null;
+        let lastHeartbeatTime = 0;
+        let missedHeartbeats = 0;
+        let pingInterval = 30000; // Send ping every 30 seconds
+        let pongTimeout = 10000; // Expect pong within 10 seconds
+
         // Clear history double-tap state
         let clearHistoryConfirmState = false;
         let clearHistoryTimeout = null;
@@ -2597,6 +2605,10 @@
                     }
                     updateConnectionBadge('connected');
                     lastHeartbeat = Date.now();
+                    
+                    // Start heartbeat monitoring
+                    startHeartbeat();
+                    
                     ws.send(JSON.stringify({ authorize: token }));
                 };
 
@@ -2621,6 +2633,10 @@
                 ws.onclose = () => {
                     logActivity('WebSocket disconnected', 'error');
                     updateConnectionBadge('disconnected');
+                    
+                    // Stop heartbeat monitoring
+                    stopHeartbeat();
+                    
                     if (sessionTimer) {
                         stopSessionTimer();
                         logActivity('Session timer reset due to disconnection', 'warning');
@@ -2701,8 +2717,152 @@
             });
         }
 
+        // Start heartbeat/ping-pong mechanism
+        function startHeartbeat() {
+            stopHeartbeat(); // Clear any existing heartbeat
+            
+            lastHeartbeatTime = Date.now();
+            missedHeartbeats = 0;
+            
+            // Send ping every 30 seconds
+            heartbeatInterval = setInterval(() => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    stopHeartbeat();
+                    return;
+                }
+                
+                // Check if we received any message in the last 45 seconds
+                const timeSinceLastMessage = Date.now() - lastHeartbeat;
+                if (timeSinceLastMessage > 45000) {
+                    missedHeartbeats++;
+                    logActivity(`⚠️ No messages received for ${Math.floor(timeSinceLastMessage/1000)}s (missed: ${missedHeartbeats})`, 'warning');
+                    
+                    // If we've missed 2 heartbeats (90 seconds), force reconnect
+                    if (missedHeartbeats >= 2) {
+                        logActivity('❌ Connection appears dead. Forcing reconnection...', 'error');
+                        stopHeartbeat();
+                        forceReconnect();
+                        return;
+                    }
+                }
+                
+                // Send ping request
+                try {
+                    ws.send(JSON.stringify({ ping: 1 }));
+                    lastHeartbeatTime = Date.now();
+                    
+                    // Set timeout to detect if pong is not received
+                    if (heartbeatTimeout) {
+                        clearTimeout(heartbeatTimeout);
+                    }
+                    
+                    heartbeatTimeout = setTimeout(() => {
+                        logActivity('⚠️ Ping timeout - no pong received', 'warning');
+                        missedHeartbeats++;
+                        
+                        if (missedHeartbeats >= 2) {
+                            logActivity('❌ Multiple ping timeouts. Forcing reconnection...', 'error');
+                            stopHeartbeat();
+                            forceReconnect();
+                        }
+                    }, pongTimeout);
+                    
+                } catch (error) {
+                    logActivity('❌ Failed to send ping', 'error');
+                    stopHeartbeat();
+                    forceReconnect();
+                }
+            }, pingInterval);
+            
+            logActivity('✅ Connection health monitoring started', 'success');
+        }
+
+        // Stop heartbeat mechanism
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+            if (heartbeatTimeout) {
+                clearTimeout(heartbeatTimeout);
+                heartbeatTimeout = null;
+            }
+        }
+
+        // Handle pong response
+        function handlePong() {
+            // Clear the timeout since we received pong
+            if (heartbeatTimeout) {
+                clearTimeout(heartbeatTimeout);
+                heartbeatTimeout = null;
+            }
+            
+            // Reset missed heartbeats counter
+            missedHeartbeats = 0;
+            
+            // Update last heartbeat time
+            lastHeartbeat = Date.now();
+        }
+
+        // Force reconnection (for ghost connections)
+        function forceReconnect() {
+            logActivity('🔄 Forcing WebSocket reconnection...', 'warning');
+            
+            // Stop heartbeat
+            stopHeartbeat();
+            
+            // Close existing connection
+            if (ws) {
+                try {
+                    ws.close();
+                } catch (e) {
+                    console.error('Error closing WebSocket:', e);
+                }
+                ws = null;
+            }
+            
+            // Update UI
+            updateConnectionBadge('disconnected');
+            isLoggedIn = false;
+            
+            // Stop session timer
+            if (sessionTimer) {
+                stopSessionTimer();
+            }
+            
+            // Try to reconnect
+            const token = document.getElementById('apiToken').value;
+            if (token) {
+                setTimeout(() => {
+                    logActivity('Attempting to reconnect...', 'info');
+                    connectWebSocket(token, true)
+                        .then(() => {
+                            logActivity('✅ Reconnection successful!', 'success');
+                            isLoggedIn = true;
+                            startHeartbeat(); // Restart heartbeat
+                            
+                            // Restore trading state
+                            if (wasAutoTradingBeforeDisconnect && !isAutoTrading) {
+                                setTimeout(() => startAutoTrading(), 1000);
+                            }
+                        })
+                        .catch(err => {
+                            logActivity('❌ Reconnection failed. Please login again.', 'error');
+                        });
+                }, 2000);
+            } else {
+                logActivity('❌ No API token found. Please login again.', 'error');
+            }
+        }
+
         // Handle WebSocket messages
         function handleWebSocketMessage(data, resolve, reject) {
+            // Handle pong response (connection health check)
+            if (data.msg_type === 'ping' || data.ping === 'pong') {
+                handlePong();
+                return;
+            }
+            
             if (data.error) {
                 if (data.error.code !== 'AlreadySubscribed') {
                     logActivity('API Error: ' + data.error.message, 'error');
@@ -4931,6 +5091,8 @@
             logActivity('', 'info');
             logActivity('🔄 CONNECTION & RELIABILITY:', 'info');
             logActivity('  • Auto-reconnection with exponential backoff', 'info');
+            logActivity('  • Connection health monitoring (30s ping/pong)', 'info');
+            logActivity('  • Ghost connection detection & auto-recovery', 'info');
             logActivity('  • Session timer with activity tracking', 'info');
             logActivity('  • WebSocket health monitoring (30s heartbeat)', 'info');
             logActivity('  • Network status detection (online/offline)', 'info');
