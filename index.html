@@ -1170,16 +1170,16 @@
                         </label>
                     </div>
                     <div class="filter-item">
-                        <span class="filter-label">Parabolic SAR Filter</span>
+                        <span class="filter-label">SuperTrend Filter</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="parabolicSarFilter">
+                            <input type="checkbox" id="superTrendFilter">
                             <span class="slider"></span>
                         </label>
                     </div>
                     <div class="filter-item">
-                        <span class="filter-label">SuperTrend Filter</span>
+                        <span class="filter-label">SuperTrend Just Flipped</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="superTrendFilter">
+                            <input type="checkbox" id="superTrendJustFlipped">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -1447,8 +1447,8 @@
          *    - All analysis uses selected timeframe
          *    - Works with all strategies and filters
          * ✅ Zero Closing, Ignore Height, Reverse Candle filters
-         * ✅ Parabolic SAR filter
          * ✅ SuperTrend filter
+         * ✅ SuperTrend Just Flipped filter (trade only on fresh trend changes)
          *    - Period: 10 (fixed)
          *    - Multiplier: Adjustable (default: 3, range: 0.5-10)
          *    - BUY: SuperTrend Green + Price above SuperTrend
@@ -1548,9 +1548,6 @@
         
         // ALTERNATOR MODE: Track next trade type for each market separately
         let marketAlternatorState = {};
-        
-        // Parabolic SAR tracking
-        let parabolicSarCache = {};
         
         // SuperTrend tracking
         let superTrendCache = {};
@@ -2309,8 +2306,8 @@
             const savedIgnoreHeightFilter = sessionStorage.getItem('ignoreHeightFilter');
             const savedOneCandleFilter = sessionStorage.getItem('oneCandleFilter');
             const savedReverseCandleFilter = sessionStorage.getItem('reverseCandleFilter');
-            const savedParabolicSarFilter = sessionStorage.getItem('parabolicSarFilter');
             const savedSuperTrendFilter = sessionStorage.getItem('superTrendFilter');
+            const savedSuperTrendJustFlipped = sessionStorage.getItem('superTrendJustFlipped');
             const savedReverseMode = sessionStorage.getItem('reverseMode');
             const savedAlternatorMode = sessionStorage.getItem('alternatorMode');
             const savedAlternatorStates = sessionStorage.getItem('alternatorStates');
@@ -2357,12 +2354,12 @@
                 document.getElementById('reverseCandleFilter').checked = savedReverseCandleFilter === 'true';
             }
 
-            if (savedParabolicSarFilter) {
-                document.getElementById('parabolicSarFilter').checked = savedParabolicSarFilter === 'true';
-            }
-
             if (savedSuperTrendFilter) {
                 document.getElementById('superTrendFilter').checked = savedSuperTrendFilter === 'true';
+            }
+
+            if (savedSuperTrendJustFlipped) {
+                document.getElementById('superTrendJustFlipped').checked = savedSuperTrendJustFlipped === 'true';
             }
 
             if (savedReverseMode) {
@@ -2446,8 +2443,8 @@
                 sessionStorage.setItem('ignoreHeightFilter', document.getElementById('ignoreHeightFilter').checked);
                 sessionStorage.setItem('oneCandleFilter', document.getElementById('oneCandleFilter').checked);
                 sessionStorage.setItem('reverseCandleFilter', document.getElementById('reverseCandleFilter').checked);
-                sessionStorage.setItem('parabolicSarFilter', document.getElementById('parabolicSarFilter').checked);
                 sessionStorage.setItem('superTrendFilter', document.getElementById('superTrendFilter').checked);
+                sessionStorage.setItem('superTrendJustFlipped', document.getElementById('superTrendJustFlipped').checked);
                 sessionStorage.setItem('reverseMode', isReverseMode);
                 sessionStorage.setItem('alternatorMode', isAlternatorMode);
                 sessionStorage.setItem('alternatorStates', JSON.stringify(marketAlternatorState));
@@ -2552,18 +2549,10 @@
                 candleData[symbol].shift();
             }
 
-            // Calculate Parabolic SAR if filter is enabled
-            const parabolicSarFilterEnabled = document.getElementById('parabolicSarFilter').checked;
-            if (parabolicSarFilterEnabled) {
-                const sarData = calculateParabolicSAR(candleData[symbol]);
-                if (sarData) {
-                    parabolicSarCache[symbol] = sarData;
-                }
-            }
-
-            // Calculate SuperTrend if filter is enabled
+            // Calculate SuperTrend if either filter is enabled
             const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-            if (superTrendFilterEnabled && candleData[symbol].length >= superTrendPeriod + 1) {
+            const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
+            if ((superTrendFilterEnabled || superTrendJustFlippedEnabled) && candleData[symbol].length >= superTrendPeriod + 1) {
                 const multiplier = parseFloat(document.getElementById('superTrendMultiplier').value) || 3;
                 const stData = calculateSuperTrend(candleData[symbol], superTrendPeriod, multiplier);
                 if (stData) {
@@ -3460,86 +3449,6 @@
             document.getElementById('timerValue').textContent = '00:00:00';
         }
 
-        // Calculate Parabolic SAR
-        function calculateParabolicSAR(candles, acceleration = 0.02, maxAcceleration = 0.2) {
-            if (candles.length < 2) return null;
-
-            const sar = [];
-            let trend = 1; // 1 for uptrend, -1 for downtrend
-            let ep = candles[0].high;
-            let af = acceleration;
-            let sarValue = candles[0].low;
-
-            for (let i = 1; i < candles.length; i++) {
-                const currentCandle = candles[i];
-                
-                // Calculate new SAR
-                sarValue = sarValue + af * (ep - sarValue);
-
-                // Check for trend reversal
-                if (trend === 1) {
-                    if (currentCandle.low < sarValue) {
-                        // Reversal to downtrend
-                        trend = -1;
-                        sarValue = ep;
-                        ep = currentCandle.low;
-                        af = acceleration;
-                    } else {
-                        // Continue uptrend
-                        if (currentCandle.high > ep) {
-                            ep = currentCandle.high;
-                            af = Math.min(af + acceleration, maxAcceleration);
-                        }
-                    }
-                } else {
-                    if (currentCandle.high > sarValue) {
-                        // Reversal to uptrend
-                        trend = 1;
-                        sarValue = ep;
-                        ep = currentCandle.high;
-                        af = acceleration;
-                    } else {
-                        // Continue downtrend
-                        if (currentCandle.low < ep) {
-                            ep = currentCandle.low;
-                            af = Math.min(af + acceleration, maxAcceleration);
-                        }
-                    }
-                }
-
-                sar.push({
-                    value: sarValue,
-                    trend: trend,
-                    position: trend === 1 ? 'below' : 'above'
-                });
-            }
-
-            return sar;
-        }
-
-        // Check Parabolic SAR signal
-        function checkParabolicSARSignal(symbol, signalType) {
-            const cachedData = parabolicSarCache[symbol];
-            if (!cachedData || cachedData.length < 2) {
-                return false;
-            }
-
-            const previousSAR = cachedData[cachedData.length - 2];
-            const currentSAR = cachedData[cachedData.length - 1];
-
-            // For CALL: SAR moves from above to below
-            if (signalType === 'CALL') {
-                return previousSAR.position === 'above' && currentSAR.position === 'below';
-            }
-
-            // For PUT: SAR moves from below to above
-            if (signalType === 'PUT') {
-                return previousSAR.position === 'below' && currentSAR.position === 'above';
-            }
-
-            return false;
-        }
-
         // Calculate Average True Range (ATR) - needed for SuperTrend
         function calculateATR(candles, period = 14) {
             if (candles.length < period + 1) return null;
@@ -3633,7 +3542,7 @@
         }
 
         // Check SuperTrend signal
-        function checkSuperTrendSignal(symbol, signalType, currentPrice) {
+        function checkSuperTrendSignal(symbol, signalType, currentPrice, requireJustFlipped = false) {
             const cachedData = superTrendCache[symbol];
             if (!cachedData || cachedData.length < 2) {
                 return false;
@@ -3649,9 +3558,15 @@
                 // Check if price is above the SuperTrend line
                 const priceAbove = currentPrice > currentST.value;
                 
-                // Optional: Check if just flipped to green for stronger signal
+                // Check if just flipped to green for stronger signal
                 const justFlipped = previousST.trend === -1 && currentST.trend === 1;
                 
+                // If Just Flipped mode is enabled, require the flip
+                if (requireJustFlipped) {
+                    return justFlipped && priceAbove;
+                }
+                
+                // Otherwise, just check trend and price position
                 return isGreen && priceAbove;
             }
 
@@ -3662,9 +3577,15 @@
                 // Check if price is below the SuperTrend line
                 const priceBelow = currentPrice < currentST.value;
                 
-                // Optional: Check if just flipped to red for stronger signal
+                // Check if just flipped to red for stronger signal
                 const justFlipped = previousST.trend === 1 && currentST.trend === -1;
                 
+                // If Just Flipped mode is enabled, require the flip
+                if (requireJustFlipped) {
+                    return justFlipped && priceBelow;
+                }
+                
+                // Otherwise, just check trend and price position
                 return isRed && priceBelow;
             }
 
@@ -3806,28 +3727,19 @@
                         return;
                     }
 
-                    // Check Parabolic SAR filter
-                    const parabolicSarFilterEnabled = document.getElementById('parabolicSarFilter').checked;
-                    if (parabolicSarFilterEnabled) {
-                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
-                        const sarSignal = checkParabolicSARSignal(symbol, tempTradeType);
-                        if (!sarSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Parabolic SAR filter not met for ${tempTradeType}`, 'warning');
-                            tradeStats.skipped++;
-                            updateStats();
-                            saveSettings();
-                            return;
-                        }
-                    }
-
-                    // Check SuperTrend filter
+                    // Check SuperTrend filters (both regular and just flipped)
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    if (superTrendFilterEnabled) {
+                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
+                    
+                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
                         const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        const requireJustFlipped = superTrendJustFlippedEnabled;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        
                         if (!stSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3897,28 +3809,19 @@
                         return;
                     }
 
-                    // Check Parabolic SAR filter
-                    const parabolicSarFilterEnabled = document.getElementById('parabolicSarFilter').checked;
-                    if (parabolicSarFilterEnabled) {
-                        const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
-                        const sarSignal = checkParabolicSARSignal(symbol, tempTradeType);
-                        if (!sarSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Parabolic SAR filter not met for ${tempTradeType}`, 'warning');
-                            tradeStats.skipped++;
-                            updateStats();
-                            saveSettings();
-                            return;
-                        }
-                    }
-
-                    // Check SuperTrend filter
+                    // Check SuperTrend filters (both regular and just flipped)
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    if (superTrendFilterEnabled) {
-                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
+                    
+                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
+                        const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        const requireJustFlipped = superTrendJustFlippedEnabled;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        
                         if (!stSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3995,28 +3898,19 @@
                         return;
                     }
 
-                    // Check Parabolic SAR filter
-                    const parabolicSarFilterEnabled = document.getElementById('parabolicSarFilter').checked;
-                    if (parabolicSarFilterEnabled) {
-                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
-                        const sarSignal = checkParabolicSARSignal(symbol, tempTradeType);
-                        if (!sarSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Parabolic SAR filter not met for ${tempTradeType}`, 'warning');
-                            tradeStats.skipped++;
-                            updateStats();
-                            saveSettings();
-                            return;
-                        }
-                    }
-
-                    // Check SuperTrend filter
+                    // Check SuperTrend filters (both regular and just flipped)
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    if (superTrendFilterEnabled) {
+                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
+                    
+                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
                         const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        const requireJustFlipped = superTrendJustFlippedEnabled;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        
                         if (!stSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -4086,28 +3980,19 @@
                         return;
                     }
 
-                    // Check Parabolic SAR filter
-                    const parabolicSarFilterEnabled = document.getElementById('parabolicSarFilter').checked;
-                    if (parabolicSarFilterEnabled) {
-                        const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
-                        const sarSignal = checkParabolicSARSignal(symbol, tempTradeType);
-                        if (!sarSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Parabolic SAR filter not met for ${tempTradeType}`, 'warning');
-                            tradeStats.skipped++;
-                            updateStats();
-                            saveSettings();
-                            return;
-                        }
-                    }
-
-                    // Check SuperTrend filter
+                    // Check SuperTrend filters (both regular and just flipped)
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    if (superTrendFilterEnabled) {
-                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
+                    
+                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
+                        const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice);
+                        const requireJustFlipped = superTrendJustFlippedEnabled;
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        
                         if (!stSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -4914,15 +4799,15 @@
             saveSettings();
         });
 
-        document.getElementById('parabolicSarFilter').addEventListener('change', () => {
-            const enabled = document.getElementById('parabolicSarFilter').checked;
-            logActivity(`Parabolic SAR filter ${enabled ? 'enabled' : 'disabled'}`);
-            saveSettings();
-        });
-
         document.getElementById('superTrendFilter').addEventListener('change', () => {
             const enabled = document.getElementById('superTrendFilter').checked;
             logActivity(`SuperTrend filter ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'success' : 'info');
+            saveSettings();
+        });
+
+        document.getElementById('superTrendJustFlipped').addEventListener('change', () => {
+            const enabled = document.getElementById('superTrendJustFlipped').checked;
+            logActivity(`SuperTrend Just Flipped filter ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'success' : 'info');
             saveSettings();
         });
 
@@ -4953,7 +4838,6 @@
                         candleData[symbol] = [];
                         currentOHLC[symbol] = undefined;
                         currentMinute[symbol] = undefined;
-                        parabolicSarCache[symbol] = undefined;
                         superTrendCache[symbol] = undefined;
                     });
                     logActivity('Candle data cleared. Building new candles with updated timeframe...', 'info');
@@ -5195,8 +5079,9 @@
             logActivity('  • Candle Timeframe: Configurable (1 min or 5 min)', 'info');
             logActivity('  • Contract Types: RISE/FALL & HIGHER/LOWER', 'info');
             logActivity('  • Filters: Zero Closing, Ignore Height, Reverse Candle', 'info');
-            logActivity('  • Advanced: Parabolic SAR Filter & SuperTrend Filter', 'info');
+            logActivity('  • Advanced: SuperTrend Filter & SuperTrend Just Flipped', 'info');
             logActivity('  • SuperTrend: Adjustable multiplier (default: 3)', 'info');
+            logActivity('  • SuperTrend Just Flipped: Trade only on fresh trend changes', 'info');
             logActivity('  • Modes: Reverse Mode & Alternator Mode', 'info');
             logActivity('  • Risk Management: Stop Loss & Take Profit', 'info');
             logActivity('', 'info');
