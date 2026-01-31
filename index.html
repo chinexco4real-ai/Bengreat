@@ -3711,27 +3711,26 @@
                 return false;
             }
 
-            const previousCE = cachedData[cachedData.length - 2];
             const currentCE = cachedData[cachedData.length - 1];
 
-            // For CALL: Trend must flip from Bearish (-1) to Bullish (1) AND confirmed
+            // For CALL: Chandelier must be Bullish AND price above Long Stop
             if (signalType === 'CALL') {
-                // Check if trend just flipped from bearish to bullish
-                const justFlippedBullish = previousCE.trend === -1 && currentCE.trend === 1;
+                // Check if Chandelier is in bullish trend
+                const isBullish = currentCE.trend === 1;
                 // Price must be above the long stop (confirmation)
                 const priceAbove = currentPrice > currentCE.longStop;
                 
-                return justFlippedBullish && priceAbove;
+                return isBullish && priceAbove;
             }
 
-            // For PUT: Trend must flip from Bullish (1) to Bearish (-1) AND confirmed
+            // For PUT: Chandelier must be Bearish AND price below Short Stop
             if (signalType === 'PUT') {
-                // Check if trend just flipped from bullish to bearish
-                const justFlippedBearish = previousCE.trend === 1 && currentCE.trend === -1;
+                // Check if Chandelier is in bearish trend
+                const isBearish = currentCE.trend === -1;
                 // Price must be below the short stop (confirmation)
                 const priceBelow = currentPrice < currentCE.shortStop;
                 
-                return justFlippedBearish && priceBelow;
+                return isBearish && priceBelow;
             }
 
             return false;
@@ -3896,7 +3895,7 @@
                         const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
                         
                         if (!ceSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3990,7 +3989,7 @@
                         const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
                         
                         if (!ceSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -4091,7 +4090,7 @@
                         const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
                         
                         if (!ceSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -4185,7 +4184,7 @@
                         const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
                         
                         if (!ceSignal) {
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
