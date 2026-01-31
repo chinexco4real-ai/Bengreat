@@ -1177,11 +1177,19 @@
                         </label>
                     </div>
                     <div class="filter-item">
-                        <span class="filter-label">SuperTrend Just Flipped</span>
+                        <span class="filter-label">Chandelier Exit Filter</span>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="superTrendJustFlipped">
+                            <input type="checkbox" id="chandelierFilter">
                             <span class="slider"></span>
                         </label>
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Chandelier ATR Period</span>
+                        <input type="number" id="chandelierPeriod" value="22" min="5" max="100" step="1" style="width: 80px; padding: 8px; background: #2a3250; border: 2px solid #3d4663; border-radius: 5px; color: #e0e0e0;">
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">Chandelier Multiplier</span>
+                        <input type="number" id="chandelierMultiplier" value="3" min="1" max="10" step="0.5" style="width: 80px; padding: 8px; background: #2a3250; border: 2px solid #3d4663; border-radius: 5px; color: #e0e0e0;">
                     </div>
                 </div>
 
@@ -1448,7 +1456,7 @@
          *    - Works with all strategies and filters
          * ✅ Zero Closing, Ignore Height, Reverse Candle filters
          * ✅ SuperTrend filter
-         * ✅ SuperTrend Just Flipped filter (trade only on fresh trend changes)
+         * ✅ Chandelier Exit filter (trades only on trend flips with confirmation)
          *    - Period: 10 (fixed)
          *    - Multiplier: Adjustable (default: 3, range: 0.5-10)
          *    - BUY: SuperTrend Green + Price above SuperTrend
@@ -1498,17 +1506,11 @@
             'frxEURUSD': 'EUR/USD',
             'frxGBPUSD': 'GBP/USD',
             'frxUSDJPY': 'USD/JPY',
-            'frxEURGBP': 'EUR/GBP',
-            'frxEURJPY': 'EUR/JPY',
-            'frxGBPJPY': 'GBP/JPY',
             'frxAUDUSD': 'AUD/USD',
             'frxUSDCAD': 'USD/CAD',
-            'frxEURCAD': 'EUR/CAD',
-            'frxEURCHF': 'EUR/CHF',
-            'frxEURAUD': 'EUR/AUD',
-            'frxGBPAUD': 'GBP/AUD',
-            'frxAUDJPY': 'AUD/JPY',
-            'frxUSDCHF': 'USD/CHF'
+            
+            // Metals
+            'frxXAUUSD': 'XAU/USD (Gold)'
         };
 
         // Global state
@@ -2307,7 +2309,9 @@
             const savedOneCandleFilter = sessionStorage.getItem('oneCandleFilter');
             const savedReverseCandleFilter = sessionStorage.getItem('reverseCandleFilter');
             const savedSuperTrendFilter = sessionStorage.getItem('superTrendFilter');
-            const savedSuperTrendJustFlipped = sessionStorage.getItem('superTrendJustFlipped');
+            const savedChandelierFilter = sessionStorage.getItem('chandelierFilter');
+            const savedChandelierPeriod = sessionStorage.getItem('chandelierPeriod');
+            const savedChandelierMultiplier = sessionStorage.getItem('chandelierMultiplier');
             const savedReverseMode = sessionStorage.getItem('reverseMode');
             const savedAlternatorMode = sessionStorage.getItem('alternatorMode');
             const savedAlternatorStates = sessionStorage.getItem('alternatorStates');
@@ -2358,8 +2362,16 @@
                 document.getElementById('superTrendFilter').checked = savedSuperTrendFilter === 'true';
             }
 
-            if (savedSuperTrendJustFlipped) {
-                document.getElementById('superTrendJustFlipped').checked = savedSuperTrendJustFlipped === 'true';
+            if (savedChandelierFilter) {
+                document.getElementById('chandelierFilter').checked = savedChandelierFilter === 'true';
+            }
+
+            if (savedChandelierPeriod) {
+                document.getElementById('chandelierPeriod').value = savedChandelierPeriod;
+            }
+
+            if (savedChandelierMultiplier) {
+                document.getElementById('chandelierMultiplier').value = savedChandelierMultiplier;
             }
 
             if (savedReverseMode) {
@@ -2444,7 +2456,9 @@
                 sessionStorage.setItem('oneCandleFilter', document.getElementById('oneCandleFilter').checked);
                 sessionStorage.setItem('reverseCandleFilter', document.getElementById('reverseCandleFilter').checked);
                 sessionStorage.setItem('superTrendFilter', document.getElementById('superTrendFilter').checked);
-                sessionStorage.setItem('superTrendJustFlipped', document.getElementById('superTrendJustFlipped').checked);
+                sessionStorage.setItem('chandelierFilter', document.getElementById('chandelierFilter').checked);
+                sessionStorage.setItem('chandelierPeriod', document.getElementById('chandelierPeriod').value);
+                sessionStorage.setItem('chandelierMultiplier', document.getElementById('chandelierMultiplier').value);
                 sessionStorage.setItem('reverseMode', isReverseMode);
                 sessionStorage.setItem('alternatorMode', isAlternatorMode);
                 sessionStorage.setItem('alternatorStates', JSON.stringify(marketAlternatorState));
@@ -2549,14 +2563,24 @@
                 candleData[symbol].shift();
             }
 
-            // Calculate SuperTrend if either filter is enabled
+            // Calculate SuperTrend if filter is enabled
             const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-            const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
-            if ((superTrendFilterEnabled || superTrendJustFlippedEnabled) && candleData[symbol].length >= superTrendPeriod + 1) {
+            if (superTrendFilterEnabled && candleData[symbol].length >= superTrendPeriod + 1) {
                 const multiplier = parseFloat(document.getElementById('superTrendMultiplier').value) || 3;
                 const stData = calculateSuperTrend(candleData[symbol], superTrendPeriod, multiplier);
                 if (stData) {
                     superTrendCache[symbol] = stData;
+                }
+            }
+
+            // Calculate Chandelier Exit if filter is enabled
+            const chandelierFilterEnabled = document.getElementById('chandelierFilter').checked;
+            if (chandelierFilterEnabled && candleData[symbol].length >= 23) {
+                const period = parseInt(document.getElementById('chandelierPeriod').value) || 22;
+                const multiplier = parseFloat(document.getElementById('chandelierMultiplier').value) || 3;
+                const ceData = calculateChandelierExit(candleData[symbol], period, multiplier);
+                if (ceData) {
+                    chandelierCache[symbol] = ceData;
                 }
             }
 
@@ -3601,6 +3625,118 @@
             return false;
         }
 
+        // Chandelier Exit tracking
+        let chandelierCache = {};
+
+        // Calculate Chandelier Exit
+        function calculateChandelierExit(candles, period = 22, multiplier = 3) {
+            if (candles.length < period + 1) return null;
+
+            const atr = calculateATR(candles, period);
+            if (!atr || atr.length === 0) return null;
+
+            const chandelier = [];
+            let trend = 1; // 1 for bullish (long), -1 for bearish (short)
+            let longStop = 0;
+            let shortStop = 0;
+
+            for (let i = period; i < candles.length; i++) {
+                const atrValue = atr[i - period];
+                
+                // Find highest high and lowest low over the period
+                let highestHigh = candles[i].high;
+                let lowestLow = candles[i].low;
+                
+                for (let j = Math.max(0, i - period + 1); j <= i; j++) {
+                    if (candles[j].high > highestHigh) highestHigh = candles[j].high;
+                    if (candles[j].low < lowestLow) lowestLow = candles[j].low;
+                }
+
+                // Calculate Chandelier stops
+                const newLongStop = highestHigh - (multiplier * atrValue);
+                const newShortStop = lowestLow + (multiplier * atrValue);
+
+                // Update long stop (can only move up, never down)
+                if (i === period) {
+                    longStop = newLongStop;
+                } else {
+                    longStop = Math.max(newLongStop, longStop);
+                }
+
+                // Update short stop (can only move down, never up)
+                if (i === period) {
+                    shortStop = newShortStop;
+                } else {
+                    shortStop = Math.min(newShortStop, shortStop);
+                }
+
+                // Determine trend based on price crossing stops
+                const currentClose = candles[i].close;
+                const prevTrend = chandelier.length > 0 ? chandelier[chandelier.length - 1].trend : 1;
+
+                if (prevTrend === 1) {
+                    // Was in uptrend
+                    if (currentClose < longStop) {
+                        trend = -1; // Flip to downtrend
+                        shortStop = newShortStop; // Reset short stop
+                    } else {
+                        trend = 1; // Continue uptrend
+                    }
+                } else {
+                    // Was in downtrend
+                    if (currentClose > shortStop) {
+                        trend = 1; // Flip to uptrend
+                        longStop = newLongStop; // Reset long stop
+                    } else {
+                        trend = -1; // Continue downtrend
+                    }
+                }
+
+                chandelier.push({
+                    longStop: longStop,
+                    shortStop: shortStop,
+                    trend: trend,
+                    value: trend === 1 ? longStop : shortStop,
+                    color: trend === 1 ? 'green' : 'red'
+                });
+            }
+
+            return chandelier;
+        }
+
+        // Check Chandelier Exit signal
+        function checkChandelierSignal(symbol, signalType, currentPrice) {
+            const cachedData = chandelierCache[symbol];
+            if (!cachedData || cachedData.length < 2) {
+                return false;
+            }
+
+            const previousCE = cachedData[cachedData.length - 2];
+            const currentCE = cachedData[cachedData.length - 1];
+
+            // For CALL: Trend must flip from Bearish (-1) to Bullish (1) AND confirmed
+            if (signalType === 'CALL') {
+                // Check if trend just flipped from bearish to bullish
+                const justFlippedBullish = previousCE.trend === -1 && currentCE.trend === 1;
+                // Price must be above the long stop (confirmation)
+                const priceAbove = currentPrice > currentCE.longStop;
+                
+                return justFlippedBullish && priceAbove;
+            }
+
+            // For PUT: Trend must flip from Bullish (1) to Bearish (-1) AND confirmed
+            if (signalType === 'PUT') {
+                // Check if trend just flipped from bullish to bearish
+                const justFlippedBearish = previousCE.trend === 1 && currentCE.trend === -1;
+                // Price must be below the short stop (confirmation)
+                const priceBelow = currentPrice < currentCE.shortStop;
+                
+                return justFlippedBearish && priceBelow;
+            }
+
+            return false;
+        }
+
         // Subscribe to market
         function subscribeToMarket(symbol) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -3736,19 +3872,31 @@
                         return;
                     }
 
-                    // Check SuperTrend filters (both regular and just flipped)
+                    // Check SuperTrend filter
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
-                    
-                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
+                    if (superTrendFilterEnabled) {
                         const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const requireJustFlipped = superTrendJustFlippedEnabled;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, false);
                         
                         if (!stSignal) {
-                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
+                    // Check Chandelier Exit filter
+                    const chandelierFilterEnabled = document.getElementById('chandelierFilter').checked;
+                    if (chandelierFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
+                        
+                        if (!ceSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3818,19 +3966,31 @@
                         return;
                     }
 
-                    // Check SuperTrend filters (both regular and just flipped)
+                    // Check SuperTrend filter
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
-                    
-                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
+                    if (superTrendFilterEnabled) {
                         const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const requireJustFlipped = superTrendJustFlippedEnabled;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, false);
                         
                         if (!stSignal) {
-                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
+                    // Check Chandelier Exit filter
+                    const chandelierFilterEnabled = document.getElementById('chandelierFilter').checked;
+                    if (chandelierFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
+                        
+                        if (!ceSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3907,19 +4067,31 @@
                         return;
                     }
 
-                    // Check SuperTrend filters (both regular and just flipped)
+                    // Check SuperTrend filter
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
-                    
-                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
+                    if (superTrendFilterEnabled) {
                         const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const requireJustFlipped = superTrendJustFlippedEnabled;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, false);
                         
                         if (!stSignal) {
-                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
+                    // Check Chandelier Exit filter
+                    const chandelierFilterEnabled = document.getElementById('chandelierFilter').checked;
+                    if (chandelierFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'PUT' : 'CALL';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
+                        
+                        if (!ceSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -3989,19 +4161,31 @@
                         return;
                     }
 
-                    // Check SuperTrend filters (both regular and just flipped)
+                    // Check SuperTrend filter
                     const superTrendFilterEnabled = document.getElementById('superTrendFilter').checked;
-                    const superTrendJustFlippedEnabled = document.getElementById('superTrendJustFlipped').checked;
-                    
-                    if (superTrendFilterEnabled || superTrendJustFlippedEnabled) {
+                    if (superTrendFilterEnabled) {
                         const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
                         const currentPrice = currentSpot[symbol] || lastCandle.close;
-                        const requireJustFlipped = superTrendJustFlippedEnabled;
-                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, requireJustFlipped);
+                        const stSignal = checkSuperTrendSignal(symbol, tempTradeType, currentPrice, false);
                         
                         if (!stSignal) {
-                            const filterName = requireJustFlipped ? 'SuperTrend Just Flipped' : 'SuperTrend';
-                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ${filterName} filter not met for ${tempTradeType}`, 'warning');
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: SuperTrend filter not met for ${tempTradeType}`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        }
+                    }
+
+                    // Check Chandelier Exit filter
+                    const chandelierFilterEnabled = document.getElementById('chandelierFilter').checked;
+                    if (chandelierFilterEnabled) {
+                        const tempTradeType = isReverseMode ? 'CALL' : 'PUT';
+                        const currentPrice = currentSpot[symbol] || lastCandle.close;
+                        const ceSignal = checkChandelierSignal(symbol, tempTradeType, currentPrice);
+                        
+                        if (!ceSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: Chandelier Exit filter not met (trend flip required)`, 'warning');
                             tradeStats.skipped++;
                             updateStats();
                             saveSettings();
@@ -4814,9 +4998,21 @@
             saveSettings();
         });
 
-        document.getElementById('superTrendJustFlipped').addEventListener('change', () => {
-            const enabled = document.getElementById('superTrendJustFlipped').checked;
-            logActivity(`SuperTrend Just Flipped filter ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'success' : 'info');
+        document.getElementById('chandelierFilter').addEventListener('change', () => {
+            const enabled = document.getElementById('chandelierFilter').checked;
+            logActivity(`Chandelier Exit filter ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'success' : 'info');
+            saveSettings();
+        });
+
+        document.getElementById('chandelierPeriod').addEventListener('change', () => {
+            const value = document.getElementById('chandelierPeriod').value;
+            logActivity(`Chandelier ATR period set to ${value}`, 'info');
+            saveSettings();
+        });
+
+        document.getElementById('chandelierMultiplier').addEventListener('change', () => {
+            const value = document.getElementById('chandelierMultiplier').value;
+            logActivity(`Chandelier multiplier set to ${value}`, 'info');
             saveSettings();
         });
 
@@ -5088,9 +5284,10 @@
             logActivity('  • Candle Timeframe: Configurable (1 min or 5 min)', 'info');
             logActivity('  • Contract Types: RISE/FALL & HIGHER/LOWER', 'info');
             logActivity('  • Filters: Zero Closing, Ignore Height, Reverse Candle', 'info');
-            logActivity('  • Advanced: SuperTrend Filter & SuperTrend Just Flipped', 'info');
+            logActivity('  • Advanced: SuperTrend Filter & Chandelier Exit', 'info');
             logActivity('  • SuperTrend: Adjustable multiplier (default: 3)', 'info');
-            logActivity('  • SuperTrend Just Flipped: Trade only on fresh trend changes', 'info');
+            logActivity('  • Chandelier Exit: Trend flip detection with confirmation', 'info');
+            logActivity('  • Chandelier: Adjustable period (default: 22) & multiplier (default: 3)', 'info');
             logActivity('  • Modes: Reverse Mode & Alternator Mode', 'info');
             logActivity('  • Risk Management: Stop Loss & Take Profit', 'info');
             logActivity('', 'info');
@@ -5124,10 +5321,8 @@
             logActivity('🎯 SUPPORTED MARKETS:', 'info');
             logActivity('  • Volatility 10/25/50/75/100 Index', 'info');
             logActivity('  • Step Index (100/200/300/400/500)', 'info');
-            logActivity('  • Forex: EUR/USD, GBP/USD, USD/JPY, EUR/GBP', 'info');
-            logActivity('  • Forex: EUR/JPY, GBP/JPY, AUD/USD, USD/CAD', 'info');
-            logActivity('  • Forex: EUR/CAD, EUR/CHF, EUR/AUD, GBP/AUD', 'info');
-            logActivity('  • Forex: AUD/JPY, USD/CHF', 'info');
+            logActivity('  • Forex: EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD', 'info');
+            logActivity('  • Metals: XAU/USD (Gold)', 'info');
             logActivity('', 'info');
             logActivity('⚙️ HIGHER/LOWER SPECIFICATIONS:', 'info');
             logActivity('  • Supported: All Volatility indices (excluding Step Index)', 'info');
