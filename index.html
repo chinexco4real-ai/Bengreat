@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ben Sniper - Deriv Trading Bot (FIXED + SuperTrend + Multi-Timeframe)</title>
+    <title>Ben Sniper - Deriv Trading Bot (FIXED + SuperTrend + Multi-Timeframe + ADX)</title>
     <style>
         * {
             margin: 0;
@@ -1191,6 +1191,21 @@
                         <span class="filter-label">Chandelier Multiplier</span>
                         <input type="number" id="chandelierMultiplier" value="3" min="1" max="10" step="0.5" style="width: 80px; padding: 8px; background: #2a3250; border: 2px solid #3d4663; border-radius: 5px; color: #e0e0e0;">
                     </div>
+                    <div class="filter-item">
+                        <span class="filter-label">ADX Filter</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="adxFilter">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">ADX Period</span>
+                        <input type="number" id="adxPeriod" value="14" min="5" max="50" step="1" style="width: 80px; padding: 8px; background: #2a3250; border: 2px solid #3d4663; border-radius: 5px; color: #e0e0e0;">
+                    </div>
+                    <div class="filter-item">
+                        <span class="filter-label">ADX Threshold (>)</span>
+                        <input type="number" id="adxThreshold" value="25" min="0" max="100" step="1" style="width: 80px; padding: 8px; background: #2a3250; border: 2px solid #3d4663; border-radius: 5px; color: #e0e0e0;">
+                    </div>
                 </div>
 
                 <!-- Conflict Alert Box -->
@@ -2312,6 +2327,9 @@
             const savedChandelierFilter = sessionStorage.getItem('chandelierFilter');
             const savedChandelierPeriod = sessionStorage.getItem('chandelierPeriod');
             const savedChandelierMultiplier = sessionStorage.getItem('chandelierMultiplier');
+            const savedAdxFilter = sessionStorage.getItem('adxFilter');
+            const savedAdxPeriod = sessionStorage.getItem('adxPeriod');
+            const savedAdxThreshold = sessionStorage.getItem('adxThreshold');
             const savedReverseMode = sessionStorage.getItem('reverseMode');
             const savedAlternatorMode = sessionStorage.getItem('alternatorMode');
             const savedAlternatorStates = sessionStorage.getItem('alternatorStates');
@@ -2372,6 +2390,18 @@
 
             if (savedChandelierMultiplier) {
                 document.getElementById('chandelierMultiplier').value = savedChandelierMultiplier;
+            }
+
+            if (savedAdxFilter) {
+                document.getElementById('adxFilter').checked = savedAdxFilter === 'true';
+            }
+
+            if (savedAdxPeriod) {
+                document.getElementById('adxPeriod').value = savedAdxPeriod;
+            }
+
+            if (savedAdxThreshold) {
+                document.getElementById('adxThreshold').value = savedAdxThreshold;
             }
 
             if (savedReverseMode) {
@@ -2459,6 +2489,9 @@
                 sessionStorage.setItem('chandelierFilter', document.getElementById('chandelierFilter').checked);
                 sessionStorage.setItem('chandelierPeriod', document.getElementById('chandelierPeriod').value);
                 sessionStorage.setItem('chandelierMultiplier', document.getElementById('chandelierMultiplier').value);
+                sessionStorage.setItem('adxFilter', document.getElementById('adxFilter').checked);
+                sessionStorage.setItem('adxPeriod', document.getElementById('adxPeriod').value);
+                sessionStorage.setItem('adxThreshold', document.getElementById('adxThreshold').value);
                 sessionStorage.setItem('reverseMode', isReverseMode);
                 sessionStorage.setItem('alternatorMode', isAlternatorMode);
                 sessionStorage.setItem('alternatorStates', JSON.stringify(marketAlternatorState));
@@ -2581,6 +2614,16 @@
                 const ceData = calculateChandelierExit(candleData[symbol], period, multiplier);
                 if (ceData) {
                     chandelierCache[symbol] = ceData;
+                }
+            }
+
+            // Calculate ADX if filter is enabled
+            const adxFilterEnabled = document.getElementById('adxFilter').checked;
+            if (adxFilterEnabled && candleData[symbol].length >= 40) {
+                const period = parseInt(document.getElementById('adxPeriod').value) || 14;
+                const adxData = calculateADX(candleData[symbol], period);
+                if (adxData) {
+                    adxCache[symbol] = adxData;
                 }
             }
 
@@ -3736,6 +3779,115 @@
             return false;
         }
 
+        // ADX Filter tracking
+        let adxCache = {};
+
+        // Helper function: Calculate EMA for ADX
+        function calculateEMA(data, period) {
+            if (data.length < period) return [];
+            
+            let ema = [];
+            const multiplier = 2 / (period + 1);
+            
+            // First EMA is SMA
+            let sum = 0;
+            for (let i = 0; i < period; i++) {
+                sum += data[i];
+            }
+            ema.push(sum / period);
+            
+            // Calculate EMA for remaining values
+            for (let i = period; i < data.length; i++) {
+                const value = (data[i] - ema[ema.length - 1]) * multiplier + ema[ema.length - 1];
+                ema.push(value);
+            }
+            
+            return ema;
+        }
+
+        // Calculate ADX (Average Directional Index)
+        function calculateADX(candles, period = 14) {
+            if (candles.length < period + 20) return null;
+            
+            // Calculate True Range (TR), +DM, and -DM
+            let trValues = [];
+            let plusDM = [];
+            let minusDM = [];
+            
+            for (let i = 1; i < candles.length; i++) {
+                const current = candles[i];
+                const previous = candles[i - 1];
+                
+                // True Range
+                const tr = Math.max(
+                    current.high - current.low,
+                    Math.abs(current.high - previous.close),
+                    Math.abs(current.low - previous.close)
+                );
+                trValues.push(tr);
+                
+                // Directional Movement
+                const upMove = current.high - previous.high;
+                const downMove = previous.low - current.low;
+                
+                const pDM = (upMove > downMove && upMove > 0) ? upMove : 0;
+                const mDM = (downMove > upMove && downMove > 0) ? downMove : 0;
+                
+                plusDM.push(pDM);
+                minusDM.push(mDM);
+            }
+            
+            // Calculate smoothed TR, +DM, -DM using EMA
+            const smoothTR = calculateEMA(trValues, period);
+            const smoothPlusDM = calculateEMA(plusDM, period);
+            const smoothMinusDM = calculateEMA(minusDM, period);
+            
+            // Calculate +DI and -DI
+            let plusDI = [];
+            let minusDI = [];
+            
+            for (let i = 0; i < smoothTR.length; i++) {
+                if (smoothTR[i] !== 0) {
+                    plusDI.push((smoothPlusDM[i] / smoothTR[i]) * 100);
+                    minusDI.push((smoothMinusDM[i] / smoothTR[i]) * 100);
+                } else {
+                    plusDI.push(0);
+                    minusDI.push(0);
+                }
+            }
+            
+            // Calculate DX
+            let dx = [];
+            for (let i = 0; i < plusDI.length; i++) {
+                const diSum = plusDI[i] + minusDI[i];
+                if (diSum !== 0) {
+                    dx.push((Math.abs(plusDI[i] - minusDI[i]) / diSum) * 100);
+                } else {
+                    dx.push(0);
+                }
+            }
+            
+            // Calculate ADX (smoothed DX)
+            const adxValues = calculateEMA(dx, period);
+            
+            // Store in cache with full array
+            return adxValues;
+        }
+
+        // Check ADX signal (returns true if ADX is above threshold)
+        function checkAdxSignal(symbol) {
+            const cachedData = adxCache[symbol];
+            if (!cachedData || cachedData.length === 0) {
+                return false;
+            }
+            
+            const threshold = parseFloat(document.getElementById('adxThreshold').value);
+            const currentADX = cachedData[cachedData.length - 1];
+            
+            // Trade only when ADX is above threshold (indicates strong trend)
+            return currentADX > threshold;
+        }
+
         // Subscribe to market
         function subscribeToMarket(symbol) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -3903,6 +4055,23 @@
                         }
                     }
 
+                    // Check ADX filter
+                    const adxFilterEnabled = document.getElementById('adxFilter').checked;
+                    if (adxFilterEnabled) {
+                        const adxSignal = checkAdxSignal(symbol);
+                        const threshold = parseFloat(document.getElementById('adxThreshold').value);
+                        const currentADX = adxCache[symbol] ? adxCache[symbol][adxCache[symbol].length - 1] : 0;
+                        
+                        if (!adxSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ADX filter not met (${currentADX.toFixed(2)} ≤ ${threshold})`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        } else {
+                            logActivity(`✅ ADX filter passed for ${markets[symbol]} (${currentADX.toFixed(2)} > ${threshold})`, 'success');
+                        }
+                    }
                     const contractType = getContractType();
                     const hlDirection = getHLDirection();
                     
@@ -3997,6 +4166,23 @@
                         }
                     }
 
+                    // Check ADX filter
+                    const adxFilterEnabled = document.getElementById('adxFilter').checked;
+                    if (adxFilterEnabled) {
+                        const adxSignal = checkAdxSignal(symbol);
+                        const threshold = parseFloat(document.getElementById('adxThreshold').value);
+                        const currentADX = adxCache[symbol] ? adxCache[symbol][adxCache[symbol].length - 1] : 0;
+                        
+                        if (!adxSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ADX filter not met (${currentADX.toFixed(2)} ≤ ${threshold})`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        } else {
+                            logActivity(`✅ ADX filter passed for ${markets[symbol]} (${currentADX.toFixed(2)} > ${threshold})`, 'success');
+                        }
+                    }
                     const contractType = getContractType();
                     const hlDirection = getHLDirection();
                     
@@ -4098,6 +4284,23 @@
                         }
                     }
 
+                    // Check ADX filter
+                    const adxFilterEnabled = document.getElementById('adxFilter').checked;
+                    if (adxFilterEnabled) {
+                        const adxSignal = checkAdxSignal(symbol);
+                        const threshold = parseFloat(document.getElementById('adxThreshold').value);
+                        const currentADX = adxCache[symbol] ? adxCache[symbol][adxCache[symbol].length - 1] : 0;
+                        
+                        if (!adxSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ADX filter not met (${currentADX.toFixed(2)} ≤ ${threshold})`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        } else {
+                            logActivity(`✅ ADX filter passed for ${markets[symbol]} (${currentADX.toFixed(2)} > ${threshold})`, 'success');
+                        }
+                    }
                     const contractType = getContractType();
                     const hlDirection = getHLDirection();
                     
@@ -4192,6 +4395,23 @@
                         }
                     }
 
+                    // Check ADX filter
+                    const adxFilterEnabled = document.getElementById('adxFilter').checked;
+                    if (adxFilterEnabled) {
+                        const adxSignal = checkAdxSignal(symbol);
+                        const threshold = parseFloat(document.getElementById('adxThreshold').value);
+                        const currentADX = adxCache[symbol] ? adxCache[symbol][adxCache[symbol].length - 1] : 0;
+                        
+                        if (!adxSignal) {
+                            logActivity(`⏭️ Signal skipped for ${markets[symbol]}: ADX filter not met (${currentADX.toFixed(2)} ≤ ${threshold})`, 'warning');
+                            tradeStats.skipped++;
+                            updateStats();
+                            saveSettings();
+                            return;
+                        } else {
+                            logActivity(`✅ ADX filter passed for ${markets[symbol]} (${currentADX.toFixed(2)} > ${threshold})`, 'success');
+                        }
+                    }
                     const contractType = getContractType();
                     const hlDirection = getHLDirection();
                     
@@ -5283,10 +5503,12 @@
             logActivity('  • Candle Timeframe: Configurable (1 min or 5 min)', 'info');
             logActivity('  • Contract Types: RISE/FALL & HIGHER/LOWER', 'info');
             logActivity('  • Filters: Zero Closing, Ignore Height, Reverse Candle', 'info');
-            logActivity('  • Advanced: SuperTrend Filter & Chandelier Exit', 'info');
+            logActivity('  • Advanced: SuperTrend Filter, Chandelier Exit & ADX Filter', 'info');
             logActivity('  • SuperTrend: Adjustable multiplier (default: 3)', 'info');
             logActivity('  • Chandelier Exit: Trend flip detection with confirmation', 'info');
             logActivity('  • Chandelier: Adjustable period (default: 22) & multiplier (default: 3)', 'info');
+            logActivity('  • ADX Filter: Trend strength indicator with adjustable threshold', 'info');
+            logActivity('  • ADX: Adjustable period (default: 14) & threshold (default: 25)', 'info');
             logActivity('  • Modes: Reverse Mode & Alternator Mode', 'info');
             logActivity('  • Risk Management: Stop Loss & Take Profit', 'info');
             logActivity('', 'info');
